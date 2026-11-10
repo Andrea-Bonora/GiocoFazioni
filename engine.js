@@ -4,6 +4,13 @@
 
 const GameState = {
   roomCode: "SOLO",
+  currentScreen: "MENU",
+  waitingForDefenseFromIdx: null,
+  persistentStatusText: "Inizio partita • In attesa della prima mossa...",
+  turnEventsLog: [],       // Accumula i + e - di PV/PC (da Carte Azione, Leader e Combattimento) per lo Scontrino di Battaglia
+  activeSummaryModal: null, // Contiene i dati del modal con barra di 5s
+  skipVotes: [],            // Tiene traccia di chi ha cliccato "Salta"
+  readingTimerInterval: null,
   playerName: "Giocatore 1",
   options: {
     arenasEnabled: true,
@@ -55,23 +62,191 @@ const UI = {
     return name;
   },
 
-  createOrJoinRoom() {
+  createOnlineRoom() {
     const name = this.validateUsername();
     if (!name) return;
+    Multiplayer.createOnlineRoom(name);
+  },
 
-    const codeInput = document.getElementById("room-code-input")?.value.trim().toUpperCase();
-    if (!codeInput) {
-      this.showToastPopup("⚠️ Inserisci un Codice Stanza (es. NORD)!", 1800);
+  joinOnlineRoom() {
+    const name = this.validateUsername();
+    if (!name) return;
+    const code = document.getElementById("room-code-input")?.value.trim().toUpperCase();
+    if (!code || code.length < 3) {
+      this.showToastPopup("⚠️ Inserisci un Codice Stanza valido!", 1600);
       return;
     }
-    GameState.roomCode = codeInput;
+    Multiplayer.joinOnlineRoom(code, name);
+  },
 
-    const lobbyBox = document.getElementById("lobby-box");
-    lobbyBox.classList.remove("hidden");
-    lobbyBox.classList.add("flex");
-    document.getElementById("lobby-room-label").textContent = codeInput;
+  showLobbyPanel(code) {
+    const box = document.getElementById("lobby-box");
+    box.classList.remove("hidden");
+    box.classList.add("flex");
+    document.getElementById("lobby-room-label").textContent = code;
+  },
 
-    Multiplayer.joinRoom(codeInput, { name, id: Date.now() + "_" + Math.random().toString(36).slice(2, 6) });
+  renderLobbySlotsUI() {
+    const container = document.getElementById("lobby-slots-container");
+    if (!container) return;
+    container.innerHTML = "";
+    Object.values(Multiplayer.lobbySlots).forEach((slot) => {
+      const isMine = slot.occupiedBy === Multiplayer.myPeerId;
+      const isOccupied = !!slot.occupiedBy;
+      const btn = document.createElement("button");
+      btn.className = `p-2 rounded-xl border text-left text-xs transition ${
+        isMine
+          ? "bg-emerald-500/25 border-emerald-400 text-white font-black"
+          : isOccupied
+          ? "bg-white/10 border-white/20 text-white/80"
+          : "bg-black/30 border-dashed border-cyan-400/50 text-cyan-200"
+      }`;
+      btn.onclick = () => Multiplayer.claimSlot(slot.index);
+      btn.innerHTML = `
+        <div class="text-[10px] uppercase text-white/60">P${slot.index + 1}</div>
+        <div class="truncate font-bold">${isOccupied ? slot.name : "🤖 Bot (Tocca per entrare)"}</div>
+      `;
+      container.appendChild(btn);
+    });
+
+    const humans = Multiplayer.getHumanSlotsCount();
+    document.getElementById("lobby-status-msg").textContent = `${humans} Umani • ${4 - humans} Bot`;
+    this.updateStartButtonState();
+  },
+
+  // PUNTO 5: Aggiorna la Barra Fissa di Cronologia Turno
+  setPersistentStatus(text) {
+    GameState.persistentStatusText = text;
+    const bar = document.getElementById("persistent-status-bar");
+    if (bar) bar.innerHTML = text;
+  },
+
+  // PUNTO 4: Disegna la Freccia Luminosa di Puntamento ("Chi mira a Chi") per 1.6 secondi prima dello scontro
+  drawTargetingArrow(fromPlayerIdx, toPlayerIdx, onComplete) {
+    const svg = document.getElementById("targeting-arrow-layer");
+    const line = document.getElementById("targeting-arrow-line");
+    const mySlot = Multiplayer.myOnlineSlot || 0;
+
+    const getBoxEl = (pIdx) => (pIdx === mySlot ? document.getElementById("p1-resource-box") : document.getElementById(`opp-box-${pIdx}`));
+    const fromEl = getBoxEl(fromPlayerIdx);
+    const toEl = getBoxEl(toPlayerIdx);
+
+    if (!svg || !line || !fromEl || !toEl) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    const r1 = fromEl.getBoundingClientRect();
+    const r2 = toEl.getBoundingClientRect();
+    line.setAttribute("x1", r1.left + r1.width / 2);
+    line.setAttribute("y1", r1.top + r1.height / 2);
+    line.setAttribute("x2", r2.left + r2.width / 2);
+    line.setAttribute("y2", r2.top + r2.height / 2);
+
+    svg.classList.remove("hidden");
+    setTimeout(() => {
+      svg.classList.add("hidden");
+      if (onComplete) onComplete();
+    }, 1500);
+  },
+
+  // PUNTO 2: Renderizza le Pillole Complete con PV e PC direttamente sopra gli slot ATK e DIF nella Mini-Arena Centrale
+  renderMiniArenaPills() {
+    const atkPill = document.getElementById("mini-pill-atk");
+    const difPill = document.getElementById("mini-pill-dif");
+    if (!atkPill || !difPill) return;
+
+    const atkP = GameState.currentAttackingPlayerIdx !== null ? GameState.players[GameState.currentAttackingPlayerIdx] : null;
+    const difP = GameState.currentDefendingPlayerIdx !== null ? GameState.players[GameState.currentDefendingPlayerIdx] : null;
+
+    atkPill.innerHTML = atkP
+      ? `<span class="text-rose-300">⚔️ ${atkP.name}</span>
+         <span class="text-rose-200">♥${atkP.hp}</span>
+         <span class="text-cyan-200">⚡${atkP.pc}</span>`
+      : `<span class="text-white/40">Attaccante</span>`;
+
+    difPill.innerHTML = difP
+      ? `<span class="text-sky-300">🛡️ ${difP.name}</span>
+         <span class="text-rose-200">♥${difP.hp}</span>
+         <span class="text-cyan-200">⚡${difP.pc}</span>`
+      : `<span class="text-white/40">Difensore</span>`;
+  },
+
+  // PUNTO 1 & PUNTO 3: Modale Riassuntivo con "Scontrino del Turno" + Barra di Caricamento di 5s + Tasto "Salta" Condiviso
+  showTimedSummaryModal(summaryHTML, durationMs = 5000, onFinishCallback = null) {
+    if (GameState.readingTimerInterval) clearInterval(GameState.readingTimerInterval);
+    GameState.skipVotes = [];
+
+    const view = document.getElementById("modal-custom-view");
+    const actions = document.getElementById("modal-actions");
+
+    // Costruisce lo "Scontrino di Battaglia / Turno" con tutte le variazioni di PV e PC registrate nel turno
+    const receiptItems = GameState.turnEventsLog.length > 0
+      ? GameState.turnEventsLog.map((e) => `<div class="text-[11px] font-bold text-white/90">${e}</div>`).join("")
+      : `<div class="text-[11px] text-white/50">Nessuna variazione secondaria di risorse</div>`;
+
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">
+        ${summaryHTML}
+        <!-- Scontrino Riassuntivo del Turno (Carte Azione + Costi + Danni + Effetti) -->
+        <div class="liquid-glass w-full max-w-lg px-4 py-2.5 rounded-2xl border border-white/20 text-left space-y-1">
+          <div class="text-[10px] font-black uppercase tracking-widest text-amber-300 border-b border-white/10 pb-1">
+            📜 Riepilogo Effetti & Risorse del Turno
+          </div>
+          ${receiptItems}
+        </div>
+        <!-- Barra di Caricamento Visiva (5 secondi) -->
+        <div class="w-full max-w-lg h-2 bg-black/50 rounded-full overflow-hidden border border-white/20 mt-1">
+          <div id="reading-bar-fill" class="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 reading-progress-fill" style="width: 100%"></div>
+        </div>
+      </div>
+    `;
+
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    actions.innerHTML = `
+      <button id="btn-skip-timer" class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
+        Salta Attesa (0/${totalHumans}) ➔
+      </button>
+    `;
+
+    document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+
+    const finishNow = () => {
+      if (GameState.readingTimerInterval) {
+        clearInterval(GameState.readingTimerInterval);
+        GameState.readingTimerInterval = null;
+      }
+      this.closeModal();
+      GameState.turnEventsLog = [];
+      if (onFinishCallback) onFinishCallback();
+    };
+
+    document.getElementById("btn-skip-timer").onclick = () => {
+      const mySlot = Multiplayer.myOnlineSlot || 0;
+      if (!GameState.skipVotes.includes(mySlot)) GameState.skipVotes.push(mySlot);
+      const btn = document.getElementById("btn-skip-timer");
+      if (btn) btn.textContent = `Salta Attesa (${GameState.skipVotes.length}/${totalHumans}) ➔`;
+
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "VOTE_SKIP_SUMMARY" });
+      } else if (GameState.skipVotes.length >= totalHumans) {
+        finishNow();
+      }
+    };
+
+    let elapsed = 0;
+    const step = 100;
+    GameState.readingTimerInterval = setInterval(() => {
+      elapsed += step;
+      const pct = Math.max(0, 100 - (elapsed / durationMs) * 100);
+      const bar = document.getElementById("reading-bar-fill");
+      if (bar) bar.style.width = `${pct}%`;
+
+      if (elapsed >= durationMs || GameState.skipVotes.length >= totalHumans) {
+        finishNow();
+      }
+    }, step);
   },
 
   updateLobbyList(playersList) {
@@ -390,8 +565,7 @@ const UI = {
     // 2. Zona Centrale Superiore: Slot ATK e DIF
     const atkName = GameState.currentAttackingPlayerIdx !== null ? GameState.players[GameState.currentAttackingPlayerIdx].name : "";
     const difName = GameState.currentDefendingPlayerIdx !== null ? GameState.players[GameState.currentDefendingPlayerIdx].name : "";
-    document.getElementById("atk-player-label").textContent = atkName ? `⚔️ ${atkName}` : "";
-    document.getElementById("dif-player-label").textContent = difName ? `🛡️ ${difName}` : "";
+    this.renderMiniArenaPills();
 
     this.renderMiniSlot("slot-attacker", GameState.slotAtkCard, "Zona ATK");
     this.renderMiniSlot("slot-defender", GameState.slotDifCard, "Zona DIF");
@@ -900,96 +1074,64 @@ const Engine = {
     }
   },
 
-  // Applica danno agli HP, verifica Risveglio + Cicatrice (12 HP) + Ultima Fiamma (+1 PC)
-  applyDirectDamage(target, amount, sourcePlayer = null, isDeckOutDamage = false) {
-    if (amount <= 0 || target.eliminated) return;
+  logTurnEvent(htmlLine) {
+    GameState.turnEventsLog.push(htmlLine);
+  },
 
-    // Grim Risvegliato riduce i danni di 1 (minimo 1)
-    if (target.leader.id === "ldr_grim" && target.awakened && amount > 1) {
-      amount -= 1;
-    }
+  applyDirectDamage(target, amount, sourcePlayer = null, isDeckOutDamage = false, reasonLabel = "Combattimento") {
+    if (amount <= 0 || target.eliminated) return;
+    if (target.leader.id === "ldr_grim" && target.awakened && amount > 1) amount -= 1;
 
     target.hp = Math.max(0, target.hp - amount);
     UI.spawnFloatingText(target.index, `-${amount} PV`, "text-rose-400");
-    UI.showCenterActionBanner(
-      `💔 <span>${target.name}</span> <span class="text-rose-400">perde ${amount} PV</span> <span class="text-xs text-white/70">(${target.hp}/${target.maxHp} PV)</span>`,
-      1150,
-      "border-rose-500/80"
-    );
-    if (sourcePlayer && sourcePlayer.index !== target.index) {
-      target.lastDamagedBy = sourcePlayer.index;
-    }
+    this.logTurnEvent(`💔 <b>${target.name}</b> perde <b class="text-rose-400">-${amount} PV</b> <i>(${reasonLabel})</i> ➔ Resta a <b>${target.hp} PV</b>`);
 
-    // Passiva di Grim (Goblin): +1 PC ogni volta che subisce danni
-    if (target.leader.id === "ldr_grim" && target.hp > 0) {
-      this.gainPc(target, 1);
-    }
+    if (sourcePlayer && sourcePlayer.index !== target.index) target.lastDamagedBy = sourcePlayer.index;
+    if (target.leader.id === "ldr_grim" && target.hp > 0) this.gainPc(target, 1, "Passiva Leader Grim");
 
-    // Check Risveglio (Patch 1.4: Soglia dinamica, Cicatrice 12 HP, Ultima Fiamma +1 PC)
-    if (
-      GameState.options.awakeningEnabled &&
-      !target.awakened &&
-      target.hp > 0 &&
-      target.hp <= target.leader.threshold
-    ) {
+    if (GameState.options.awakeningEnabled && !target.awakened && target.hp > 0 && target.hp <= target.leader.threshold) {
       target.awakened = true;
-      target.maxHp = 12; // Cicatrice di Battaglia
-      if (!isDeckOutDamage) {
-        this.gainPc(target, 1); // Protezione Ultima Fiamma
-      }
-      UI.setBanner(`🔥 RISVEGLIO! ${target.name} attiva il potere supremo di ${target.leader.name} (Cicatrice Max 12 HP)!`);
+      target.maxHp = 12;
+      if (!isDeckOutDamage) this.gainPc(target, 1, "Bonus Ultima Fiamma");
+      this.logTurnEvent(`🔥 <b>${target.name}</b> entra in <b>RISVEGLIO</b> (${target.leader.name} • Max 12 PV)!`);
     }
 
-    // Check Eliminazione e Taglia (Kill +2 PC, Assist +3 HP)
     if (target.hp === 0 && !target.eliminated) {
       target.eliminated = true;
       const doubleBounty = GameState.options.arenasEnabled && GameState.currentArena?.modifier?.doubleBounty;
-      if (sourcePlayer) {
-        this.gainPc(sourcePlayer, doubleBounty ? 4 : 2);
-        // Check Obiettivo Bancarotta del Sangue
-        if (sourcePlayer.objective.id === "obj_gob_3" && sourcePlayer.pc === (doubleBounty ? 4 : 2)) {
-          this.triggerVictory(sourcePlayer, "Obiettivo Bancarotta del Sangue completato!");
-        }
-      }
+      if (sourcePlayer) this.gainPc(sourcePlayer, doubleBounty ? 4 : 2, "Taglia Eliminazione");
       if (target.lastDamagedBy !== null && target.lastDamagedBy !== sourcePlayer?.index) {
         const assistPlayer = GameState.players[target.lastDamagedBy];
-        if (assistPlayer && !assistPlayer.eliminated) {
-          this.healPlayer(assistPlayer, doubleBounty ? 6 : 3);
-        }
+        if (assistPlayer && !assistPlayer.eliminated) this.healPlayer(assistPlayer, doubleBounty ? 6 : 3, "Assist Eliminazione");
       }
       this.checkSurvivalVictory();
     }
+    UI.renderMiniArenaPills();
   },
 
-  healPlayer(player, amount) {
+  healPlayer(player, amount, reasonLabel = "Effetto") {
     if (player.eliminated || amount <= 0) return;
     const before = player.hp;
     player.hp = Math.min(player.maxHp, player.hp + amount);
     const healed = player.hp - before;
     if (healed > 0) {
       UI.spawnFloatingText(player.index, `+${healed} PV`, "text-emerald-400");
-      UI.showCenterActionBanner(
-        `💚 <span>${player.name}</span> <span class="text-emerald-400">recupera +${healed} PV</span> <span class="text-xs text-white/70">(${player.hp}/${player.maxHp} PV)</span>`,
-        1150,
-        "border-emerald-400/80"
-      );
+      this.logTurnEvent(`💚 <b>${player.name}</b> recupera <b class="text-emerald-400">+${healed} PV</b> <i>(${reasonLabel})</i> ➔ Sale a <b>${player.hp} PV</b>`);
+      UI.renderMiniArenaPills();
     }
   },
 
-  gainPc(player, amount, showVideoLog = true) {
+  gainPc(player, amount, reasonLabel = "Effetto") {
     if (amount === 0) return;
     const before = player.pc;
     player.pc = Math.min(this.getMaxPcCap(), Math.max(0, player.pc + amount));
     const diff = player.pc - before;
     if (diff !== 0) {
       UI.spawnFloatingText(player.index, `${diff > 0 ? "+" : ""}${diff} PC`, diff > 0 ? "text-cyan-300" : "text-amber-400");
-      if (showVideoLog) {
-        UI.showCenterActionBanner(
-          `⚡ <span>${player.name}</span> <span class="${diff > 0 ? "text-cyan-300" : "text-amber-300"}">${diff > 0 ? `recupera +${diff} PC` : `spende/perde ${Math.abs(diff)} PC`}</span> <span class="text-xs text-white/70">(${player.pc} PC)</span>`,
-          1050,
-          diff > 0 ? "border-cyan-400/80" : "border-amber-400/80"
-        );
-      }
+      this.logTurnEvent(
+        `⚡ <b>${player.name}</b> ${diff > 0 ? `guadagna <b class="text-cyan-300">+${diff} PC</b>` : `paga/perde <b class="text-amber-300">${diff} PC</b>`} <i>(${reasonLabel})</i> ➔ <b>${player.pc} PC</b>`
+      );
+      UI.renderMiniArenaPills();
     }
   },
 
@@ -1173,10 +1315,21 @@ const Engine = {
 
     if (card.shift) this.shiftArena();
     UI.renderTable();
-    UI.showActionConfirmModal(player, card, () => {
+    
+    const actionLabel = `Carta Azione "${card.name}"`;
+    this.logTurnEvent(`✨ <b>${player.name}</b> ha attivato <b>${actionLabel}</b>${targetEnemy ? ` contro <b>${targetEnemy.name}</b>` : ""}`);
+    UI.setPersistentStatus(`Ultima mossa: <b>${player.name}</b> ha usato <b>${card.name}</b>${targetEnemy ? ` su ${targetEnemy.name}` : ""}`);
+    UI.renderTable();
+
+    const summaryHTML = `
+      <div class="text-xs font-bold uppercase tracking-widest text-amber-300">${player.name} gioca una Carta Azione</div>
+      ${targetEnemy ? `<div class="px-3 py-0.5 rounded-full bg-rose-500/30 border border-rose-400 text-xs font-black text-rose-200">🎯 Bersaglio: ${targetEnemy.name}</div>` : ""}
+      ${UI.buildCustomCardHTML(card)}
+    `;
+    UI.showTimedSummaryModal(summaryHTML, 4500, () => {
       UI.renderTable();
       if (onAfterConfirm) onAfterConfirm();
-    }, targetEnemy?.name || null);
+    });
   },
 
   activateLeaderSkill(playerIdx) {
@@ -1318,22 +1471,53 @@ const Engine = {
 
   // Fase 1 Scontro: Pone la carta in Zona ATK e illumina di rosso chi deve difendersi
   resolveCombat(attackerIdx, defenderIdx, atkCard) {
+
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
 
+    GameState.currentAttackingPlayerIdx = attackerIdx;
+    GameState.currentDefendingPlayerIdx = defenderIdx;
+    GameState.slotAtkCard = atkCard;
+    GameState.slotDifCard = null;
+
     const atkCost = this.getEffectiveCardCost(attacker, atkCard);
-    this.gainPc(attacker, -atkCost);
+    this.gainPc(attacker, -atkCost, `Costo attacco: ${atkCard.name}`);
     attacker.hand = attacker.hand.filter((c) => c.uid !== atkCard.uid);
+
+    UI.setPersistentStatus(`⚔️ <b>${attacker.name}</b> attacca <b>${defender.name}</b> con <b>${atkCard.name}</b>!`);
+    UI.renderTable();
+
+    // Disegna la freccia luminosa per 1.5s dall'attaccante al difensore prima di chiedere/risolvere la difesa
+    UI.drawTargetingArrow(attackerIdx, defenderIdx, () => {
+      const mySlot = Multiplayer.myOnlineSlot || 0;
+      if (defenderIdx === mySlot && !defender.isAI) {
+        const canDefend = defender.hand.some((c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c));
+        if (canDefend) {
+          GameState.waitingForDefenseFromP1 = true;
+          UI.setPersistentStatus(`🛡️ <b>Tocca a te difenderti!</b> Scegli una Creatura dalla mano o clicca "Subisci"`);
+          UI.renderTable();
+          return;
+        }
+      }
+
+      let defCard = null;
+      if (defender.isAI) {
+        const affordableDefenders = defender.hand.filter(
+          (c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c)
+        );
+        if (affordableDefenders.length > 0) {
+          affordableDefenders.sort((a, b) => (Number(b.dif) || 4) - (Number(a.dif) || 4));
+          defCard = affordableDefenders[0];
+        }
+      }
+      this.finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard);
+    });
 
     if (attacker.leader.id === "ldr_vaelen" && atkCard.cost >= 5) {
       this.drawCards(attacker, 1);
       if (attacker.awakened) this.gainPc(attacker, 1);
     }
 
-    GameState.currentAttackingPlayerIdx = attackerIdx;
-    GameState.currentDefendingPlayerIdx = defenderIdx;
-    GameState.slotAtkCard = atkCard;
-    GameState.slotDifCard = null;
     UI.renderTable();
     // Se attaccano un altro giocatore, mostra chi attacca chi. Se attaccano ME (defenderIdx === 0), evita il doppio banner!
     if (defenderIdx !== 0) {
@@ -1484,7 +1668,23 @@ const Engine = {
     UI.renderTable();
 
     // Mostra il Tab Visivo Riassuntivo dello scontro e attende Conferma per passare al turno successivo
-    UI.showClashSummaryModal(attacker, defender, atkCard, defCard, damage, () => {
+    const atkWins = damage > 0;
+    const clashHTML = `
+      <div class="text-sm font-black uppercase tracking-wider ${atkWins ? "text-rose-400" : "text-sky-400"}">
+        ${atkWins ? `💥 ${attacker.name} infligge ${damage} Danni a ${defender.name}!` : `🛡️ ${defender.name} para completamente l'attacco (0 Danni)!`}
+      </div>
+      <div class="flex items-center justify-center gap-3">
+        ${UI.buildCustomCardHTML(atkCard, atkWins ? "clash-winner" : "clash-loser")}
+        <div class="text-sm font-black text-white/50">VS</div>
+        ${defCard ? UI.buildCustomCardHTML(defCard, !atkWins ? "clash-winner" : "clash-loser") : `<div class="w-[180px] h-[140px] rounded-2xl border border-dashed border-white/20 flex items-center justify-center text-xs text-white/40">Nessuna Difesa</div>`}
+      </div>
+    `;
+
+    UI.setPersistentStatus(
+      `Ultimo scontro: <b>${attacker.name}</b> (${atkVal} ATK) vs <b>${defender.name}</b> (${defCard ? difVal + " DIF" : "No Difesa"}) ➔ <b>${damage} Danni</b>`
+    );
+
+    UI.showTimedSummaryModal(clashHTML, 5000, () => {
       GameState.slotAtkCard = null;
       GameState.slotDifCard = null;
       GameState.currentAttackingPlayerIdx = null;

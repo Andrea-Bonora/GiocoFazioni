@@ -327,3 +327,17 @@
   border-radius: 14px;
   overflow: hidden;
 }
+
+/* Animazione scorrimento freccia di puntamento SVG */
+@keyframes dashFlow {
+  to { stroke-dashoffset: -32; }
+}
+#targeting-arrow-line {
+  animation: dashFlow 0.6s linear infinite;
+  filter: drop-shadow(0 0 10px rgba(244, 63, 94, 0.95));
+}
+
+/* Transizione fluida per la barra di lettura di 5 secondi */
+.reading-progress-fill {
+  transition: width 0.1s linear;
+}

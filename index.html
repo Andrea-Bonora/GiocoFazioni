@@ -61,23 +61,32 @@
 
         <!-- Input Codice Stanza Multiplayer -->
         <div>
-          <label class="text-[11px] uppercase tracking-wider text-white/60 font-semibold block mb-1.5">
-            Stanza Multiplayer (4 Dispositivi)
-          </label>
-          <div class="flex gap-2">
-            <input id="room-code-input" type="text" maxlength="5" placeholder="CODICE (es. NORD)" 
-              class="w-full liquid-input px-4 py-3 text-center font-mono text-lg font-bold tracking-widest uppercase text-white placeholder-white/30 focus:outline-none" />
-            <button onclick="UI.createOrJoinRoom()" class="liquid-btn-primary px-5 rounded-2xl font-bold text-sm flex items-center gap-1.5 shrink-0">
-              <i data-lucide="wifi" class="w-4 h-4"></i> Entra
-            </button>
-          </div>
-          <!-- NUOVO: Pannello Lobby Giocatori Connessi in Tempo Reale -->
-            <div id="lobby-box" class="hidden flex-col gap-2 bg-black/35 p-3 rounded-2xl border border-cyan-400/30 mt-2">
-            <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-cyan-300">
-                <span>Stanza: <b id="lobby-room-label"></b></span>
-                <span id="lobby-count-label">1/4 Giocatori</span>
+            <!-- Multiplayer P2P: Crea Stanza (Host) oppure Entra con Codice -->
+            <div class="flex flex-col gap-2">
+            <label class="text-[11px] uppercase tracking-wider text-white/60 font-semibold block">
+                Stanza Multiplayer (P2P Senza Chiavi)
+            </label>
+            <div class="grid grid-cols-2 gap-2">
+                <button onclick="UI.createOnlineRoom()" class="liquid-btn-primary py-2.5 px-3 rounded-2xl font-bold text-xs flex items-center justify-center gap-1.5">
+                <i data-lucide="plus-circle" class="w-4 h-4"></i> Crea Stanza
+                </button>
+                <div class="flex gap-1.5">
+                <input id="room-code-input" type="text" maxlength="6" placeholder="CODICE" 
+                    class="w-full liquid-input px-2.5 py-2 text-center font-mono text-sm font-bold tracking-widest uppercase text-white placeholder-white/30 focus:outline-none" />
+                <button onclick="UI.joinOnlineRoom()" class="liquid-pill px-3 rounded-2xl font-bold text-xs text-cyan-300 shrink-0">
+                    Entra
+                </button>
+                </div>
             </div>
-            <div id="lobby-players-list" class="flex flex-col gap-1 text-xs text-white/90"></div>
+            </div>
+
+            <!-- Pannello Slot Giocatori P1-P4 Connessi in Tempo Reale -->
+            <div id="lobby-box" class="hidden flex-col gap-2 bg-black/40 p-3 rounded-2xl border border-cyan-400/30 mt-1">
+            <div class="flex items-center justify-between text-[11px] font-bold uppercase tracking-wider text-cyan-300">
+                <span>Codice Stanza: <b id="lobby-room-label" class="text-amber-300 text-sm tracking-widest ml-1"></b></span>
+                <span id="lobby-status-msg" class="text-[10px] text-emerald-300">In attesa...</span>
+            </div>
+            <div id="lobby-slots-container" class="grid grid-cols-2 gap-1.5 my-1"></div>
             </div>
         </div>
 
@@ -183,42 +192,61 @@
         <!-- Popolato da UI.renderTable() -->
         </div>
 
-        <!-- COLONNA CENTRALE (6 col): ZONA ATK/DIF + PASSA + MANO -->
+        <!-- COLONNA CENTRALE (6 col): MINI-ARENA (PILLOLE PV/PC + SLOT ATK/DIF) + BARRA STATO FISSA + PASSA + MANO -->
         <div class="col-span-6 flex flex-col justify-between items-center h-full z-20">
 
-        <!-- In alto centralmente: Zona Carta ATK e Zona Carta DIF -->
-        <div class="flex items-center justify-center gap-6 mt-1">
-            <div class="flex flex-col items-center">
-            <span id="atk-player-label" class="text-[10px] font-bold uppercase tracking-wider text-rose-300 mb-1 h-4"></span>
+        <!-- PUNTO 2: MINI-ARENA CENTRALE (Pillole complete PV/PC dei 2 sfidanti direttamente sopra le carte) -->
+        <div class="flex items-center justify-center gap-5 mt-0.5 w-full">
+            <!-- Blocco Attaccante -->
+            <div class="flex flex-col items-center gap-1">
+            <div id="mini-pill-atk" class="liquid-pill px-3 py-1 rounded-xl flex items-center gap-2 text-[11px] font-black min-h-[28px] border border-rose-400/40">
+                <span class="text-white/40">Attaccante</span>
+            </div>
             <div id="slot-attacker"
-               onclick="UI.inspectSlot('atk')"
-               class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+                onclick="UI.inspectSlot('atk')"
+                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
                 <span>Zona ATK</span>
             </div>
             </div>
 
-            <div class="flex flex-col items-center">
-            <span id="dif-player-label" class="text-[10px] font-bold uppercase tracking-wider text-sky-300 mb-1 h-4"></span>
+            <div class="text-sm font-black text-white/40 italic mt-5">VS</div>
+
+            <!-- Blocco Difensore -->
+            <div class="flex flex-col items-center gap-1">
+            <div id="mini-pill-dif" class="liquid-pill px-3 py-1 rounded-xl flex items-center gap-2 text-[11px] font-black min-h-[28px] border border-sky-400/40">
+                <span class="text-white/40">Difensore</span>
+            </div>
             <div id="slot-defender"
-               onclick="UI.inspectSlot('dif')"
-               class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+                onclick="UI.inspectSlot('dif')"
+                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
                 <span>Zona DIF</span>
             </div>
             </div>
         </div>
 
-        <!-- Centralmente sopra la mano: Tasto "Passa" -->
-        <div class="my-1">
-            <button id="btn-pass-turn" onclick="UI.passTurn()" class="liquid-glass px-8 py-1.5 rounded-full text-xs font-black tracking-widest uppercase active:scale-95 transition">
+        <!-- PUNTO 5: CRONOLOGIA TURNO SEMPRE VISIBILE (1 sola riga fissa + Tasto Passa a fianco) -->
+        <div class="w-full flex items-center justify-between gap-2 px-2 my-1">
+            <div id="persistent-status-bar" class="liquid-glass px-3 py-1.5 rounded-full flex-1 text-[11px] font-semibold text-white/90 truncate text-left border border-white/20">
+            Inizio partita • In attesa della prima mossa...
+            </div>
+            <button id="btn-pass-turn" onclick="UI.passTurn()" class="liquid-glass px-5 py-1.5 rounded-full text-xs font-black tracking-widest uppercase active:scale-95 transition shrink-0">
             Passa
             </button>
         </div>
 
-        <!-- In basso centralmente: La mia mano (Solo Immagine, PC, ATK, DIF) -->
-        <div id="player-hand" class="flex items-center justify-center gap-2 overflow-x-auto no-scrollbar w-full px-2 py-1 min-h-[118px]">
-            <!-- Carte compatte trascinabili -->
+        <!-- In basso centralmente: La mia mano -->
+        <div id="player-hand" class="flex items-center justify-center gap-2 overflow-x-auto no-scrollbar w-full px-2 py-1 min-h-[108px]"></div>
         </div>
-        </div>
+
+        <!-- PUNTO 4: LAYER SVG PER LA FRECCIA LUMINOSA DI PUNTAMENTO ("Chi mira a Chi") -->
+        <svg id="targeting-arrow-layer" class="fixed inset-0 w-screen h-screen pointer-events-none z-40 hidden">
+        <defs>
+            <marker id="target-arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
+            <polygon points="0 0, 7 3.5, 0 7" fill="#f43f5e" />
+            </marker>
+        </defs>
+        <line id="targeting-arrow-line" x1="0" y1="0" x2="0" y2="0" stroke="#f43f5e" stroke-width="5" stroke-dasharray="10 6" stroke-linecap="round" marker-end="url(#target-arrowhead)" />
+        </svg>
 
         <!-- COLONNA DESTRA (3 col): RISORSE/COPPA/ARENA IN ALTO + ARTWORK LEADER IN BASSO -->
         <div class="col-span-3 flex flex-col justify-between items-end h-full z-20">
