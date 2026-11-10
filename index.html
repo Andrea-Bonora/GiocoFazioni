@@ -50,19 +50,21 @@
       <!-- Pannello Centrale Liquid Glass: Stanza & Opzioni -->
       <div class="liquid-glass p-5 flex flex-col gap-4 my-auto">
         
+        <!-- Input Username -->
+        <div>
+            <label class="text-[11px] uppercase tracking-wider text-white/60 font-semibold block mb-1.5">
+                Username
+            </label>
+            <input id="player-name-input" type="text" maxlength="12" placeholder="Es. Marco" 
+                class="w-full liquid-input px-4 py-2.5 text-center font-bold text-sm text-white placeholder-white/30 focus:outline-none" />
+        </div>
+
         <!-- Input Codice Stanza Multiplayer -->
         <div>
           <label class="text-[11px] uppercase tracking-wider text-white/60 font-semibold block mb-1.5">
             Stanza Multiplayer (4 Dispositivi)
           </label>
           <div class="flex gap-2">
-            <div>
-                <label class="text-[11px] uppercase tracking-wider text-white/60 font-semibold block mb-1.5">
-                    Username
-                </label>
-                <input id="player-name-input" type="text" maxlength="12" placeholder="Es. Marco" 
-                    class="w-full liquid-input px-4 py-2.5 text-center font-bold text-sm text-white placeholder-white/30 focus:outline-none" />
-            </div>
             <input id="room-code-input" type="text" maxlength="5" placeholder="CODICE (es. NORD)" 
               class="w-full liquid-input px-4 py-3 text-center font-mono text-lg font-bold tracking-widest uppercase text-white placeholder-white/30 focus:outline-none" />
             <button onclick="UI.createOrJoinRoom()" class="liquid-btn-primary px-5 rounded-2xl font-bold text-sm flex items-center gap-1.5 shrink-0">
