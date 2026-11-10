@@ -1,126 +1,124 @@
 /* ============================================================================
-   FAZIONI — MULTIPLAYER P2P SENZA CHIAVI (WEBRTC / PEERJS)
+   FAZIONI — MULTIPLAYER P2P SENZA CHIAVI (FIX STANZA UNICA HOST/CLIENT)
    ============================================================================ */
 
 const Multiplayer = {
   peer: null,
-  connections: [], // Usato dall'Host per tenere traccia dei client
-  hostConnection: null, // Usato dai Client per comunicare con l'Host
-  isHost: false,
+  connections: [],
+  hostConnection: null,
+  isOnlineRoom: false,
+  isHost: true,
+  roomCode: null,
+  myPlayer: null,
   connectedPlayers: [],
 
-  init() {
-    // PeerJS non richiede chiavi!
-  },
+  init() {},
 
-  async joinRoom(roomCode, playerData) {
-    const roomID = `fazioni-game-${roomCode.toLowerCase()}`;
-    this.connectedPlayers = [playerData];
+  joinRoom(roomCode, playerData) {
+    this.isOnlineRoom = true;
+    this.roomCode = roomCode.toUpperCase();
+    this.myPlayer = playerData;
+    const roomID = `fazioni-room-v14-${this.roomCode.toLowerCase()}`;
 
-    // Crea la propria identità sulla rete pubblica
-    this.peer = new Peer({ debug: 2 });
+    if (this.peer) this.peer.destroy();
 
-    this.peer.on('open', (myId) => {
-      // 1. Tenta di collegarsi alla stanza come Client
-      const conn = this.peer.connect(roomID, { reliable: true });
+    // Tenta subito di creare la stanza con l'ID fisso (Diventa HOST se la stanza non esiste)
+    this.peer = new Peer(roomID, { debug: 1 });
 
-      conn.on('open', () => {
-        // La stanza esiste, sono un CLIENT!
-        this.isHost = false;
-        this.hostConnection = conn;
-        
-        // Invia i propri dati all'Host
-        conn.send({ type: 'JOIN_ANNOUNCE', player: playerData });
-
-        // Ascolta i messaggi dall'Host
-        conn.on('data', (msg) => this.handleIncomingMessage(msg, conn));
-      });
-
-      conn.on('error', () => {
-        this.becomeHost(roomID, playerData);
-      });
-
-      // Timeout se l'Host non risponde (es. stanza vuota)
-      setTimeout(() => {
-        if (!this.hostConnection || !this.hostConnection.open) {
-          this.becomeHost(roomID, playerData);
-        }
-      }, 1500);
-    });
-  },
-
-  // 2. Se la stanza non esiste, divento io l'HOST
-  becomeHost(roomID, playerData) {
-    this.peer.destroy(); // Distrugge l'ID casuale e ne crea uno col nome della stanza
-    
-    this.peer = new Peer(roomID, { debug: 2 });
-    this.peer.on('open', () => {
+    this.peer.on("open", () => {
+      // Stanza libera: sono io l'HOST!
       this.isHost = true;
-      UI.setBanner(`Sei l'Host della stanza ${roomID.replace('fazioni-game-', '').toUpperCase()}`);
+      this.connectedPlayers = [{ ...playerData, isHost: true }];
+      UI.updateLobbyList(this.connectedPlayers);
+      UI.updateStartButtonState();
+      UI.showToastPopup(`Stanza ${this.roomCode} creata! Sei l'Host.`, 1800);
     });
 
-    // Quando un Client si collega a me
-    this.peer.on('connection', (conn) => {
-      conn.on('open', () => {
-        this.connections.push(conn);
+    // Quando un Client si collega a me (Host)
+    this.peer.on("connection", (conn) => {
+      conn.on("open", () => {
+        if (!this.connections.includes(conn)) this.connections.push(conn);
       });
 
-      conn.on('data', (msg) => {
-        // Smista i messaggi in base al tipo
-        if (msg.type === 'JOIN_ANNOUNCE') {
-          this.connectedPlayers.push(msg.player);
-          this.broadcast({ type: 'LOBBY_SYNC', list: this.connectedPlayers });
+      conn.on("data", (msg) => {
+        if (msg.type === "JOIN_REQUEST") {
+          const exists = this.connectedPlayers.some((p) => p.id === msg.player.id);
+          if (!exists && this.connectedPlayers.length < 4) {
+            this.connectedPlayers.push({ ...msg.player, isHost: false });
+          }
           UI.updateLobbyList(this.connectedPlayers);
+          this.broadcast({ type: "LOBBY_SYNC", list: this.connectedPlayers });
         } else {
-          // Se ricevo un'azione di gioco, la eseguo e la inoltro agli altri
-          this.handleIncomingMessage(msg, conn);
-          this.broadcast(msg, conn.peer); // Inoltra a tutti tranne al mittente
+          this.handleIncomingMessage(msg);
+          this.broadcast(msg, conn.peer);
         }
       });
 
-      conn.on('close', () => {
-        this.connections = this.connections.filter(c => c.peer !== conn.peer);
+      conn.on("close", () => {
+        this.connections = this.connections.filter((c) => c.peer !== conn.peer);
       });
+    });
+
+    // Se l'ID della stanza è già occupato da un altro iPhone -> Sono un CLIENT (Ospite)!
+    this.peer.on("error", (err) => {
+      if (err.type === "unavailable-id") {
+        this.connectAsClient(roomID, playerData);
+      } else {
+        UI.showToastPopup("Errore di rete P2P: " + err.type, 2000);
+      }
     });
   },
 
-  // Invia un messaggio (Se sono Host, a tutti. Se sono Client, all'Host che poi lo smisterà)
-  sendAction(actionType, data) {
-    const payload = { type: actionType, sender: GameState.activePlayerIndex, ...data };
-    const msg = { type: 'GAME_ACTION', payload };
+  connectAsClient(roomID, playerData) {
+    this.isHost = false;
+    UI.updateStartButtonState();
 
-    if (this.isHost) {
-      this.broadcast(msg);
-    } else if (this.hostConnection && this.hostConnection.open) {
-      this.hostConnection.send(msg);
-    }
+    this.peer = new Peer({ debug: 1 });
+    this.peer.on("open", () => {
+      const conn = this.peer.connect(roomID, { reliable: true });
+      this.hostConnection = conn;
+
+      conn.on("open", () => {
+        UI.showToastPopup(`Connesso alla stanza ${this.roomCode} come Ospite!`, 1800);
+        conn.send({ type: "JOIN_REQUEST", player: playerData });
+      });
+
+      conn.on("data", (msg) => this.handleIncomingMessage(msg));
+    });
   },
 
-  // (Solo Host) Invia un messaggio a tutti i client connessi
+  // L'Host clicca "Scegli Fazione e Inizia" e avvia il setup su tutti i dispositivi
+  hostTriggerSetup() {
+    if (!this.isHost) return;
+    this.broadcast({
+      type: "HOST_START_SETUP",
+      options: GameState.options,
+      playersList: this.connectedPlayers
+    });
+  },
+
   broadcast(msg, excludePeerId = null) {
-    this.connections.forEach(conn => {
+    this.connections.forEach((conn) => {
       if (conn.open && conn.peer !== excludePeerId) {
         conn.send(msg);
       }
     });
   },
 
-  // Smista i messaggi ricevuti dalla rete
-  handleIncomingMessage(msg, sourceConn) {
-    if (msg.type === 'LOBBY_SYNC') {
+  handleIncomingMessage(msg) {
+    if (msg.type === "LOBBY_SYNC") {
       this.connectedPlayers = msg.list;
       UI.updateLobbyList(this.connectedPlayers);
-    } else if (msg.type === 'GAME_ACTION') {
-      this.handleRemoteAction(msg.payload);
+      UI.updateStartButtonState();
+    } else if (msg.type === "HOST_START_SETUP") {
+      GameState.options = msg.options;
+      GameState.lobbyPlayers = msg.playersList;
+      UI.goToSetup(true);
+    } else if (msg.type === "GAME_ACTION") {
+      if (msg.payload.type === "SYNC_STATE") {
+        Object.assign(GameState, msg.payload.state);
+        UI.renderTable();
+      }
     }
-  },
-
-  handleRemoteAction(payload) {
-    if (payload.type === 'SYNC_STATE') {
-      Object.assign(GameState, payload.state);
-      UI.renderTable();
-    }
-    // Qui puoi espandere in futuro chiamando i metodi di Engine per sincronizzare singole mosse
-    // es: if (payload.type === 'ATTACK') Engine.resolveCombat(payload.attackerIdx, payload.targetIdx, payload.card);
   }
 };

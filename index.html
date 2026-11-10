@@ -78,9 +78,6 @@
                 <span id="lobby-count-label">1/4 Giocatori</span>
             </div>
             <div id="lobby-players-list" class="flex flex-col gap-1 text-xs text-white/90"></div>
-            <button onclick="UI.goToSetup()" class="liquid-btn-gold w-full py-2 mt-1 rounded-xl font-bold text-xs">
-                Avvia Setup Partita
-            </button>
             </div>
         </div>
 
@@ -122,7 +119,7 @@
         <div class="h-[1px] bg-white/10 my-1"></div>
 
         <!-- Pulsante Avvio Rapido (Prototipo / Test 4 Giocatori) -->
-        <button onclick="UI.goToSetup()" class="liquid-btn-gold w-full py-3.5 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+        <button id="btn-main-start" onclick="UI.goToSetup()" class="liquid-btn-gold w-full py-3.5 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
           <i data-lucide="swords" class="w-5 h-5"></i>
           <span>Scegli Fazione e Inizia</span>
         </button>
@@ -194,10 +191,8 @@
             <div class="flex flex-col items-center">
             <span id="atk-player-label" class="text-[10px] font-bold uppercase tracking-wider text-rose-300 mb-1 h-4"></span>
             <div id="slot-attacker"
-                ondragover="event.preventDefault()"
-                ondrop="Engine.onSlotDrop(event, 'atk')"
-                onclick="UI.inspectSlot('atk')"
-                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+               onclick="UI.inspectSlot('atk')"
+               class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
                 <span>Zona ATK</span>
             </div>
             </div>
@@ -205,10 +200,8 @@
             <div class="flex flex-col items-center">
             <span id="dif-player-label" class="text-[10px] font-bold uppercase tracking-wider text-sky-300 mb-1 h-4"></span>
             <div id="slot-defender"
-                ondragover="event.preventDefault()"
-                ondrop="Engine.onSlotDrop(event, 'dif')"
-                onclick="UI.inspectSlot('dif')"
-                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+               onclick="UI.inspectSlot('dif')"
+               class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
                 <span>Zona DIF</span>
             </div>
             </div>

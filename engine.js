@@ -41,20 +41,37 @@ const UI = {
     this.renderFactionSelection();
   },
 
-  createOrJoinRoom() {
-    const nameInput = document.getElementById("player-name-input")?.value.trim() || "Giocatore 1";
-    const codeInput = document.getElementById("room-code-input")?.value.trim().toUpperCase() || "NORD";
-    GameState.playerName = nameInput;
-    GameState.roomCode = codeInput;
+  // Valida che lo username sia stato inserito (obbligatorio sia in locale che online!)
+  validateUsername() {
+    const input = document.getElementById("player-name-input");
+    const name = input?.value.trim() || "";
+    if (!name) {
+      input?.classList.add("ring-2", "ring-rose-500");
+      this.showToastPopup("⚠️ Inserisci il tuo Nome prima di continuare!", 1800);
+      return null;
+    }
+    input?.classList.remove("ring-2", "ring-rose-500");
+    GameState.playerName = name;
+    return name;
+  },
 
-    Multiplayer.init();
-    Multiplayer.joinRoom(codeInput, { name: nameInput, id: Date.now() });
+  createOrJoinRoom() {
+    const name = this.validateUsername();
+    if (!name) return;
+
+    const codeInput = document.getElementById("room-code-input")?.value.trim().toUpperCase();
+    if (!codeInput) {
+      this.showToastPopup("⚠️ Inserisci un Codice Stanza (es. NORD)!", 1800);
+      return;
+    }
+    GameState.roomCode = codeInput;
 
     const lobbyBox = document.getElementById("lobby-box");
     lobbyBox.classList.remove("hidden");
     lobbyBox.classList.add("flex");
     document.getElementById("lobby-room-label").textContent = codeInput;
-    this.updateLobbyList([{ name: nameInput + " (Tu)" }]);
+
+    Multiplayer.joinRoom(codeInput, { name, id: Date.now() + "_" + Math.random().toString(36).slice(2, 6) });
   },
 
   updateLobbyList(playersList) {
@@ -64,42 +81,51 @@ const UI = {
     if (!listEl || !countEl) return;
     countEl.textContent = `${playersList.length}/4 Giocatori`;
     listEl.innerHTML = playersList
-      .map((p, i) => `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>${i + 1}. ${p.name}</span></div>`)
+      .map((p, i) => `<div class="flex items-center justify-between">
+        <span class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span>${i + 1}. ${p.name}</span>
+        ${p.isHost ? `<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/30 text-amber-300 font-bold">HOST</span>` : ""}
+      </div>`)
       .join("");
   },
 
-  backToMenu() {
-    document.getElementById("screen-setup").classList.add("hidden");
-    document.getElementById("screen-setup").classList.remove("flex");
-    document.getElementById("screen-menu").classList.remove("hidden");
+  // Gestisce lo stato del bottone "Scegli Fazione e Inizia" (cliccabile solo dall'Host se online)
+  updateStartButtonState() {
+    const btn = document.getElementById("btn-main-start");
+    const txt = document.getElementById("btn-main-start-text");
+    if (!btn || !txt) return;
+
+    if (Multiplayer.isOnlineRoom && !Multiplayer.isHost) {
+      btn.disabled = true;
+      btn.classList.add("opacity-40", "pointer-events-none");
+      txt.textContent = "In attesa che l'Host avvii la partita...";
+    } else {
+      btn.disabled = false;
+      btn.classList.remove("opacity-40", "pointer-events-none");
+      txt.textContent = "Scegli Fazione e Inizia";
+    }
   },
 
-  renderFactionSelection() {
-    const grid = document.getElementById("faction-grid");
-    grid.innerHTML = "";
-    Object.values(DB.factions).forEach((fac) => {
-      const btn = document.createElement("button");
-      btn.className = `liquid-glass p-3.5 text-left flex flex-col gap-1.5 transition active:scale-95 border border-white/20 hover:border-white/50`;
-      btn.onclick = () => this.selectFaction(fac.id, btn);
-      btn.innerHTML = `
-        <div class="flex items-center justify-between">
-          <span class="text-sm font-black tracking-wide">${fac.name}</span>
-          <i data-lucide="${fac.icon}" class="w-4 h-4 text-white/80"></i>
-        </div>
-        <span class="text-[10px] text-white/60 leading-tight">${fac.tagline}</span>
-      `;
-      grid.appendChild(btn);
-    });
-    lucide.createIcons();
+  handleStartButtonClick() {
+    const name = this.validateUsername();
+    if (!name) return;
+
+    if (Multiplayer.isOnlineRoom && !Multiplayer.isHost) return;
+    if (Multiplayer.isOnlineRoom && Multiplayer.isHost) {
+      GameState.options.arenasEnabled = document.getElementById("toggle-arenas").checked;
+      GameState.options.awakeningEnabled = document.getElementById("toggle-awakening").checked;
+      Multiplayer.hostTriggerSetup();
+    }
+    this.goToSetup(false);
   },
 
-  goToSetup() {
-    const nameInput = document.getElementById("player-name-input")?.value.trim();
-    GameState.playerName = nameInput || "Giocatore 1";
-    GameState.options.arenasEnabled = document.getElementById("toggle-arenas").checked;
-    GameState.options.awakeningEnabled = document.getElementById("toggle-awakening").checked;
+  goToSetup(fromRemoteHost = false) {
+    if (!fromRemoteHost) {
+      const name = this.validateUsername();
+      if (!name) return;
+      GameState.options.arenasEnabled = document.getElementById("toggle-arenas").checked;
+      GameState.options.awakeningEnabled = document.getElementById("toggle-awakening").checked;
+    }
 
-    // Ripristina la vista di setup iniziale
     document.getElementById("btn-setup-back").classList.remove("hidden");
     document.getElementById("setup-header-title").textContent = "Scegli la tua Fazione";
     document.getElementById("faction-grid").classList.remove("hidden");
@@ -112,6 +138,32 @@ const UI = {
     setup.classList.remove("hidden");
     setup.classList.add("flex");
     this.renderFactionSelection();
+  },
+
+  // Colora ogni Fazione nella schermata di selezione con il suo colore specifico!
+  renderFactionSelection() {
+    const grid = document.getElementById("faction-grid");
+    grid.innerHTML = "";
+    Object.values(DB.factions).forEach((fac) => {
+      const btn = document.createElement("button");
+      btn.className = `liquid-glass ${fac.cardClass} p-4 text-left flex flex-col gap-1.5 transition active:scale-95 hover:brightness-110`;
+      btn.onclick = () => this.selectFaction(fac.id);
+      btn.innerHTML = `
+        <div class="flex items-center justify-between">
+          <span class="text-base font-black tracking-wide text-white drop-shadow">${fac.name}</span>
+          <i data-lucide="${fac.icon}" class="w-5 h-5 text-white"></i>
+        </div>
+        <span class="text-[11px] text-white/85 leading-tight">${fac.tagline}</span>
+      `;
+      grid.appendChild(btn);
+    });
+    lucide.createIcons();
+  },
+
+  backToMenu() {
+    document.getElementById("screen-setup").classList.add("hidden");
+    document.getElementById("screen-setup").classList.remove("flex");
+    document.getElementById("screen-menu").classList.remove("hidden");
   },
 
   selectFaction(factionId) {
@@ -373,7 +425,6 @@ const UI = {
       const effectiveCost = Engine.getEffectiveCardCost(p1, card);
       const mini = document.createElement("div");
       mini.className = `hand-card-mini ${DB.factions[card.faction].cardClass}`;
-      this.attachCardDragEvents(mini, card);
       mini.onclick = () => this.inspectCard(card, true, handIdx);
 
       mini.innerHTML = `
@@ -656,13 +707,36 @@ const UI = {
   },
 
   // Mostra l'animazione centrale temporanea ("Marco attacca Ragnar_99")
-  showCenterActionBanner(htmlText, duration = 1700) {
+  bannerQueue: [],
+  isShowingBanner: false,
+
+  showCenterActionBanner(htmlText, duration = 1350, borderColorClass = "border-rose-400/80") {
+    this.bannerQueue.push({ htmlText, duration, borderColorClass });
+    if (!this.isShowingBanner) this.processNextBanner();
+  },
+
+  processNextBanner() {
+    if (this.bannerQueue.length === 0) {
+      this.isShowingBanner = false;
+      return;
+    }
+    this.isShowingBanner = true;
+    const item = this.bannerQueue.shift();
     const banner = document.getElementById("center-action-banner");
     const content = document.getElementById("center-action-content");
-    if (!banner || !content) return;
-    content.innerHTML = htmlText;
+    if (!banner || !content) {
+      this.isShowingBanner = false;
+      return;
+    }
+
+    content.className = `liquid-glass px-7 py-3 rounded-3xl border-2 ${item.borderColorClass} text-sm font-black tracking-wide text-white shadow-2xl flex items-center gap-2.5 animate-pop`;
+    content.innerHTML = item.htmlText;
     banner.classList.remove("hidden");
-    setTimeout(() => banner.classList.add("hidden"), duration);
+
+    setTimeout(() => {
+      banner.classList.add("hidden");
+      setTimeout(() => this.processNextBanner(), 150);
+    }, item.duration);
   },
 
   // Genera i badge visivi dei buff temporanei attivi su un giocatore
@@ -678,54 +752,6 @@ const UI = {
     return badges.join("");
   },
 
-  // Abilita il Drag & Drop sia col Mouse che col Dito (Touch) su iPhone verso Zona ATK e Zona DIF
-  attachCardDragEvents(miniEl, card) {
-    // 1. Mouse Drag (Desktop)
-    miniEl.draggable = true;
-    miniEl.ondragstart = (ev) => ev.dataTransfer.setData("text/plain", card.uid);
-
-    // 2. Touch Drag (iOS Safari)
-    let ghost = null;
-    let moved = false;
-    let startX = 0, startY = 0;
-
-    miniEl.addEventListener("touchstart", (e) => {
-      const t = e.touches[0];
-      startX = t.clientX;
-      startY = t.clientY;
-      moved = false;
-    }, { passive: true });
-
-    miniEl.addEventListener("touchmove", (e) => {
-      const t = e.touches[0];
-      if (Math.hypot(t.clientX - startX, t.clientY - startY) < 12) return;
-      moved = true;
-      e.preventDefault(); // Impedisce lo scroll orizzontale mentre trascini la carta verso l'alto
-
-      if (!ghost) {
-        ghost = miniEl.cloneNode(true);
-        ghost.classList.add("touch-drag-ghost");
-        document.body.appendChild(ghost);
-      }
-      ghost.style.left = `${t.clientX}px`;
-      ghost.style.top = `${t.clientY}px`;
-    }, { passive: false });
-
-    miniEl.addEventListener("touchend", (e) => {
-      if (!moved || !ghost) return;
-      const t = e.changedTouches[0];
-      ghost.remove();
-      ghost = null;
-
-      const dropTarget = document.elementFromPoint(t.clientX, t.clientY);
-      if (!dropTarget) return;
-      if (dropTarget.closest("#slot-attacker") && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1) {
-        Engine.placeCardInAtkSlot(card.uid);
-      } else if (dropTarget.closest("#slot-defender") && GameState.waitingForDefenseFromP1) {
-        Engine.placeCardInDifSlot(card.uid);
-      }
-    });
-  }
 };
 
 /* ============================================================================
@@ -885,6 +911,11 @@ const Engine = {
 
     target.hp = Math.max(0, target.hp - amount);
     UI.spawnFloatingText(target.index, `-${amount} PV`, "text-rose-400");
+    UI.showCenterActionBanner(
+      `💔 <span>${target.name}</span> <span class="text-rose-400">perde ${amount} PV</span> <span class="text-xs text-white/70">(${target.hp}/${target.maxHp} PV)</span>`,
+      1150,
+      "border-rose-500/80"
+    );
     if (sourcePlayer && sourcePlayer.index !== target.index) {
       target.lastDamagedBy = sourcePlayer.index;
     }
@@ -934,16 +965,31 @@ const Engine = {
     if (player.eliminated || amount <= 0) return;
     const before = player.hp;
     player.hp = Math.min(player.maxHp, player.hp + amount);
-    if (player.hp > before) UI.spawnFloatingText(player.index, `+${player.hp - before} PV`, "text-emerald-400");
+    const healed = player.hp - before;
+    if (healed > 0) {
+      UI.spawnFloatingText(player.index, `+${healed} PV`, "text-emerald-400");
+      UI.showCenterActionBanner(
+        `💚 <span>${player.name}</span> <span class="text-emerald-400">recupera +${healed} PV</span> <span class="text-xs text-white/70">(${player.hp}/${player.maxHp} PV)</span>`,
+        1150,
+        "border-emerald-400/80"
+      );
+    }
   },
 
-  gainPc(player, amount) {
+  gainPc(player, amount, showVideoLog = true) {
     if (amount === 0) return;
     const before = player.pc;
     player.pc = Math.min(this.getMaxPcCap(), Math.max(0, player.pc + amount));
     const diff = player.pc - before;
     if (diff !== 0) {
       UI.spawnFloatingText(player.index, `${diff > 0 ? "+" : ""}${diff} PC`, diff > 0 ? "text-cyan-300" : "text-amber-400");
+      if (showVideoLog) {
+        UI.showCenterActionBanner(
+          `⚡ <span>${player.name}</span> <span class="${diff > 0 ? "text-cyan-300" : "text-amber-300"}">${diff > 0 ? `recupera +${diff} PC` : `spende/perde ${Math.abs(diff)} PC`}</span> <span class="text-xs text-white/70">(${player.pc} PC)</span>`,
+          1050,
+          diff > 0 ? "border-cyan-400/80" : "border-amber-400/80"
+        );
+      }
     }
   },
 
@@ -1289,16 +1335,24 @@ const Engine = {
     GameState.slotAtkCard = atkCard;
     GameState.slotDifCard = null;
     UI.renderTable();
-    UI.showCenterActionBanner(`⚔️ <span>${attacker.name}</span> <span class="text-rose-400">attacca</span> <span>${defender.name}!</span>`, 1800);
+    // Se attaccano un altro giocatore, mostra chi attacca chi. Se attaccano ME (defenderIdx === 0), evita il doppio banner!
+    if (defenderIdx !== 0) {
+      UI.showCenterActionBanner(
+        `⚔️ <span>${attacker.name}</span> <span class="text-rose-400">attacca</span> <span>${defender.name}!</span>`,
+        1500,
+        "border-rose-400/80"
+      );
+    }
 
-    // Se il difensore sono io (P1) e ho almeno una Creatura che posso permettermi, attendo che io trascini in Zona DIF
     if (defenderIdx === 0) {
       const canDefend = defender.hand.some((c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c));
       if (canDefend) {
         GameState.waitingForDefenseFromP1 = true;
         UI.renderTable();
-        UI.showToastPopup("Ti attaccano! Trascina una Creatura in Zona DIF o clicca 'Subisci'", 2200);
+        UI.showToastPopup(`⚔️ ${attacker.name} ti attacca! Apri una Creatura dalla mano per difenderti o clicca 'Subisci'`, 2400);
         return;
+      } else {
+        UI.showToastPopup(`⚔️ ${attacker.name} ti attacca! (Nessuna Creatura utilizzabile in difesa)`, 1800);
       }
     }
 
@@ -1515,7 +1569,7 @@ const Engine = {
       p.attacksTakenThisRound = 0;
       p.usedLeaderThisRound = false;
       p.wonClashThisRound = false;
-      this.gainPc(p, pcRegen);
+      this.gainPc(p, pcRegen, false);
       this.drawCards(p, 1, true);
     });
 
