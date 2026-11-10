@@ -639,7 +639,7 @@ const UI = {
 
   closeModal() {
     document.getElementById("glass-modal").classList.add("hidden");
-  }
+  },
 
   // Mostra i numeri fluttuanti (-3 PV in rosso, +2 PC in azzurro) sopra il riquadro del giocatore
   spawnFloatingText(playerIdx, text, colorClass = "text-rose-400") {
@@ -1569,7 +1569,7 @@ const Engine = {
   triggerVictory(winner, reason) {
     GameState.gameOver = true;
     UI.showModal("🏆 VITTORIA!", `${winner.name} ha vinto!`, `${reason}\n\nFazione: ${DB.factions[winner.faction].name} • Leader: ${winner.leader.name}`);
-  }
+  },
   
   
 };
