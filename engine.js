@@ -25,6 +25,9 @@ const GameState = {
   slotDifCard: null,
   waitingForDefenseFromP1: false,
   // --------------------------------------------------------
+  pendingTargetSelection: null, // { validTargets: [], onSelect: fn, label: "" }
+  inspectedHandIndex: null,     // Indice della carta in mano aperta per lo swipe
+  lobbyPlayers: [],             // Giocatori connessi nella stanza
   players: [],
   gameOver: false
 };
@@ -39,14 +42,30 @@ const UI = {
   },
 
   createOrJoinRoom() {
-    const codeInput = document.getElementById("room-code-input").value.trim().toUpperCase();
-    GameState.roomCode = codeInput || "NORD";
-    this.showModal(
-      "Stanza Multiplayer",
-      `Codice Stanza: ${GameState.roomCode}`,
-      `Stanza pronta! Nella Parte 4 collegheremo il canale WebSocket Supabase per sincronizzare i 4 iPhone sul codice "${GameState.roomCode}". Ora puoi scegliere la tua Fazione e testare il tavolo completo.`
-    );
-    this.goToSetup();
+    const nameInput = document.getElementById("player-name-input")?.value.trim() || "Giocatore 1";
+    const codeInput = document.getElementById("room-code-input")?.value.trim().toUpperCase() || "NORD";
+    GameState.playerName = nameInput;
+    GameState.roomCode = codeInput;
+
+    Multiplayer.init();
+    Multiplayer.joinRoom(codeInput, { name: nameInput, id: Date.now() });
+
+    const lobbyBox = document.getElementById("lobby-box");
+    lobbyBox.classList.remove("hidden");
+    lobbyBox.classList.add("flex");
+    document.getElementById("lobby-room-label").textContent = codeInput;
+    this.updateLobbyList([{ name: nameInput + " (Tu)" }]);
+  },
+
+  updateLobbyList(playersList) {
+    GameState.lobbyPlayers = playersList;
+    const listEl = document.getElementById("lobby-players-list");
+    const countEl = document.getElementById("lobby-count-label");
+    if (!listEl || !countEl) return;
+    countEl.textContent = `${playersList.length}/4 Giocatori`;
+    listEl.innerHTML = playersList
+      .map((p, i) => `<div class="flex items-center gap-2"><span class="w-2 h-2 rounded-full bg-emerald-400"></span><span>${i + 1}. ${p.name}</span></div>`)
+      .join("");
   },
 
   backToMenu() {
@@ -246,41 +265,53 @@ const UI = {
     this.showToastPopup(msg.replace(/<[^>]*>?/gm, ''), 1600);
   },
 
-  renderTable() {
+  renderMiniSlot(slotId, card, placeholder) {
+    const el = document.getElementById(slotId);
+    if (!card) {
+      el.innerHTML = `<span>${placeholder}</span>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="relative w-full h-full rounded-xl overflow-hidden">
+        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
+        <div class="absolute bottom-0 inset-x-0 bg-black/80 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
+          <span class="text-rose-300">⚔️${card.computedAtk ?? card.atk}</span>
+          <span class="text-sky-300">🛡️${card.computedDif ?? card.dif}</span>
+        </div>
+      </div>
+    `;
+  },
 
+  renderTable() {
+    const p1 = GameState.players[0];
     const attackOverlay = document.getElementById("under-attack-overlay");
     if (attackOverlay) attackOverlay.classList.toggle("hidden", !GameState.waitingForDefenseFromP1);
 
-    const p1 = GameState.players[0];
-
-    // 1. Sfondo Arena
-    if (GameState.options.arenasEnabled && GameState.currentArena) {
-      const orbs = document.querySelectorAll(".ambient-orb");
-      GameState.currentArena.orbColors.forEach((col, idx) => {
-        if (orbs[idx]) orbs[idx].style.background = col;
-      });
-    }
-
-    // 2. Colonna Sinistra: I 3 Avversari (Verde = turno, Rosso = attaccato, Giallo = immune)
+    // 1. Colonna Sinistra: I 3 Avversari con ID per Floating Numbers, Badge Buff e Selezione Bersaglio
     const oppCol = document.getElementById("opponents-col");
     oppCol.innerHTML = "";
     GameState.players.slice(1).forEach((opp) => {
       const isTurn = GameState.activePlayerIndex === opp.index && GameState.currentDefendingPlayerIdx === null;
       const isBeingAttacked = GameState.currentDefendingPlayerIdx === opp.index;
       const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
+      const isSelectableTarget = GameState.pendingTargetSelection?.validTargets.includes(opp.index);
 
       let borderClass = "";
-      if (isBeingAttacked) borderClass = "status-attacked-red";
+      if (isSelectableTarget) borderClass = "target-selectable-glow";
+      else if (isBeingAttacked) borderClass = "status-attacked-red";
       else if (isTurn) borderClass = "status-turn-green";
       else if (isImmune) borderClass = "status-immune-yellow";
 
       const box = document.createElement("div");
-      box.className = `liquid-glass panel-${opp.faction} p-2.5 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
+      box.id = `opp-box-${opp.index}`;
+      box.className = `relative liquid-glass panel-${opp.faction} p-2 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
         opp.eliminated ? "opacity-30 grayscale pointer-events-none" : ""
       }`;
 
       box.onclick = () => {
-        if (GameState.activePlayerIndex === 0 && GameState.slotAtkCard && GameState.currentDefendingPlayerIdx === null) {
+        if (GameState.pendingTargetSelection) {
+          Engine.handlePendingTargetClick(opp.index);
+        } else if (GameState.activePlayerIndex === 0 && GameState.slotAtkCard && GameState.currentDefendingPlayerIdx === null) {
           Engine.confirmTargetForDraggedAttack(opp.index);
         } else {
           this.inspectPlayer(opp);
@@ -289,19 +320,22 @@ const UI = {
 
       box.innerHTML = `
         <div class="flex items-center justify-between text-xs font-black">
-          <span>${opp.name} • ${DB.factions[opp.faction].name}</span>
-          <span class="text-[11px] text-white/80">🃏 ${opp.hand.length}</span>
+          <span class="truncate">${opp.name} • ${DB.factions[opp.faction].name}</span>
+          <span class="text-[11px] text-white/90">🃏 ${opp.hand.length}/${Engine.getPlayerHandLimit(opp)}</span>
         </div>
-        <div class="text-[11px] font-bold text-amber-300 truncate">${opp.leader.name}</div>
-        <div class="flex items-center gap-3 text-xs font-black">
-          <span class="text-rose-300 flex items-center gap-1"><i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>${opp.hp}</span>
-          <span class="text-cyan-300 flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>${opp.pc}</span>
+        <div class="text-[10px] font-bold text-amber-300 truncate">${opp.leader.name}</div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5 text-xs font-black">
+            <span class="text-rose-300 flex items-center gap-0.5"><i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>${opp.hp}</span>
+            <span class="text-cyan-300 flex items-center gap-0.5"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>${opp.pc}</span>
+          </div>
+          <div class="flex gap-1">${this.buildBuffBadgesHTML(opp)}</div>
         </div>
       `;
       oppCol.appendChild(box);
     });
 
-    // 3. Zona Centrale Superiore: Slot ATK e DIF + Nomi giocatori
+    // 2. Zona Centrale Superiore: Slot ATK e DIF
     const atkName = GameState.currentAttackingPlayerIdx !== null ? GameState.players[GameState.currentAttackingPlayerIdx].name : "";
     const difName = GameState.currentDefendingPlayerIdx !== null ? GameState.players[GameState.currentDefendingPlayerIdx].name : "";
     document.getElementById("atk-player-label").textContent = atkName ? `⚔️ ${atkName}` : "";
@@ -310,7 +344,7 @@ const UI = {
     this.renderMiniSlot("slot-attacker", GameState.slotAtkCard, "Zona ATK");
     this.renderMiniSlot("slot-defender", GameState.slotDifCard, "Zona DIF");
 
-    // 4. Pulsante Centrale: "Passa" (o "Non Difendere" se ti stanno attaccando)
+    // 3. Pulsante Centrale: "Passa" / "Subisci" / "Annulla Bersaglio"
     const passBtn = document.getElementById("btn-pass-turn");
     if (GameState.waitingForDefenseFromP1) {
       passBtn.textContent = "Subisci (No Difesa)";
@@ -318,28 +352,29 @@ const UI = {
       passBtn.classList.remove("opacity-40");
     } else {
       passBtn.textContent = "Passa";
-      const canPass = GameState.activePlayerIndex === 0 && GameState.currentDefendingPlayerIdx === null;
+      const canPass = GameState.activePlayerIndex === 0 && GameState.currentDefendingPlayerIdx === null && !GameState.pendingTargetSelection;
       passBtn.disabled = !canPass;
       passBtn.classList.toggle("opacity-40", !canPass);
     }
 
-    // 5. Colonna Destra: Icone HP/PC + Coppa + Arena + Artwork Leader
+    // 4. Colonna Destra: HP, PC, Badge Buff P1, Contatore Mano (X/Max), Obiettivo, Arena, Leader
     document.getElementById("p1-hp").textContent = p1.hp;
     document.getElementById("p1-pc").textContent = p1.pc;
+    document.getElementById("p1-buff-row").innerHTML = this.buildBuffBadgesHTML(p1);
+    document.getElementById("p1-hand-counter").textContent = `${p1.hand.length}/${Engine.getPlayerHandLimit(p1)}`;
     document.getElementById("arena-badge").classList.toggle("hidden", !GameState.options.arenasEnabled);
     document.getElementById("p1-leader-name").textContent = p1.leader.name;
     document.getElementById("my-leader-art").innerHTML = DB.generateUniqueCardArt(p1.leader.name, p1.faction, "creature").replace("h-16", "h-full");
 
-    // 6. Mano in basso (Solo Immagine, PC, ATK, DIF)
+    // 5. Mano del Giocatore (con supporto Touch Drag & Drop + Tap per Ispezione con Swipe)
     const handContainer = document.getElementById("player-hand");
     handContainer.innerHTML = "";
-    p1.hand.forEach((card) => {
+    p1.hand.forEach((card, handIdx) => {
       const effectiveCost = Engine.getEffectiveCardCost(p1, card);
       const mini = document.createElement("div");
       mini.className = `hand-card-mini ${DB.factions[card.faction].cardClass}`;
-      mini.draggable = true;
-      mini.ondragstart = (ev) => ev.dataTransfer.setData("text/plain", card.uid);
-      mini.onclick = () => this.inspectCard(card, true);
+      this.attachCardDragEvents(mini, card);
+      mini.onclick = () => this.inspectCard(card, true, handIdx);
 
       mini.innerHTML = `
         <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
@@ -361,32 +396,43 @@ const UI = {
     lucide.createIcons();
   },
 
-  renderMiniSlot(slotId, card, placeholder) {
-    const el = document.getElementById(slotId);
-    if (!card) {
-      el.innerHTML = `<span>${placeholder}</span>`;
-      return;
-    }
-    el.innerHTML = `
-      <div class="relative w-full h-full rounded-xl overflow-hidden">
-        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
-        <div class="absolute bottom-0 inset-x-0 bg-black/80 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
-          <span class="text-rose-300">⚔️${card.computedAtk ?? card.atk}</span>
-          <span class="text-sky-300">🛡️${card.computedDif ?? card.dif}</span>
-        </div>
-      </div>
-    `;
-  },
-
-  inspectCard(card, fromHand = false) {
+  // Ispezione Carta con SWIPE ORIZZONTALE (e frecce) per scorrere la mano senza chiudere il modal
+  inspectCard(card, fromHand = false, handIdx = null) {
     if (!card) return;
+    const p1 = GameState.players[0];
+    if (fromHand) {
+      GameState.inspectedHandIndex = handIdx !== null ? handIdx : p1.hand.findIndex((c) => c.uid === card.uid);
+    } else {
+      GameState.inspectedHandIndex = null;
+    }
+
     const view = document.getElementById("modal-custom-view");
     const actions = document.getElementById("modal-actions");
-    view.innerHTML = this.buildCustomCardHTML(card);
+
+    const navHint = fromHand && p1.hand.length > 1
+      ? `<div class="flex items-center justify-between w-full max-w-[360px] text-[10px] text-white/60 px-2 mb-1">
+           <button onclick="UI.navigateInspectedHand(-1)" class="liquid-pill px-2.5 py-1 rounded-lg font-bold">◀ Prec</button>
+           <span>Scorri col dito (${GameState.inspectedHandIndex + 1}/${p1.hand.length})</span>
+           <button onclick="UI.navigateInspectedHand(1)" class="liquid-pill px-2.5 py-1 rounded-lg font-bold">Succ ▶</button>
+         </div>`
+      : "";
+
+    view.innerHTML = `<div class="flex flex-col items-center w-full">${navHint}${this.buildCustomCardHTML(card)}</div>`;
+
+    // Listener Swipe Orizzontale con il dito sul modale
+    let touchStartX = 0;
+    view.ontouchstart = (e) => { touchStartX = e.changedTouches[0].screenX; };
+    view.ontouchend = (e) => {
+      if (!fromHand || p1.hand.length <= 1) return;
+      const diff = e.changedTouches[0].screenX - touchStartX;
+      if (Math.abs(diff) > 40) {
+        this.navigateInspectedHand(diff < 0 ? 1 : -1);
+      }
+    };
 
     let extraBtn = "";
     if (fromHand && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1 && card.type === "action") {
-      extraBtn = `<button onclick="UI.closeModal(); Engine.playActionWithConfirm(0, '${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Usa Azione</button>`;
+      extraBtn = `<button onclick="UI.closeModal(); Engine.initiateActionPlay(0, '${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Usa Azione</button>`;
     } else if (fromHand && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1 && card.type === "creature" && !GameState.slotAtkCard) {
       extraBtn = `<button onclick="UI.closeModal(); Engine.placeCardInAtkSlot('${card.uid}')" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">Metti in Zona ATK</button>`;
     } else if (fromHand && GameState.waitingForDefenseFromP1 && card.type === "creature") {
@@ -397,16 +443,26 @@ const UI = {
     lucide.createIcons();
   },
 
-  inspectSlot(type) {
-    const card = type === "atk" ? GameState.slotAtkCard : GameState.slotDifCard;
-    if (card) this.inspectCard(card, false);
+  navigateInspectedHand(direction) {
+    const p1 = GameState.players[0];
+    if (GameState.inspectedHandIndex === null || p1.hand.length === 0) return;
+    const nextIdx = (GameState.inspectedHandIndex + direction + p1.hand.length) % p1.hand.length;
+    this.inspectCard(p1.hand[nextIdx], true, nextIdx);
   },
 
+  // Dettaglio Giocatore/Leader con lista Immunità e Boost Attivi
   inspectPlayer(opp) {
     const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
     const leaderArt = DB.generateUniqueCardArt(opp.leader.name, opp.faction, "creature").replace("h-16", "h-28");
     const factionClass = DB.factions[opp.faction].cardClass;
     const view = document.getElementById("modal-custom-view");
+
+    const activeEffects = [];
+    if (isImmune) activeEffects.push("Immune agli attacchi per questo Round");
+    if (opp.buffNextAttack > 0) activeEffects.push(`+${opp.buffNextAttack} ATK al prossimo attacco`);
+    if (opp.buffNextDefense > 0) activeEffects.push(`+${opp.buffNextDefense} DIF alla prossima difesa`);
+    if (opp.halfNextAttackDamage) activeEffects.push("Dimezza l'ATK del prossimo attacco subito");
+    if (opp.shieldSlamActive) activeEffects.push("Usa la DIF al posto dell'ATK in questo turno");
 
     view.innerHTML = `
       <div class="liquid-glass ${factionClass} p-4 rounded-2xl grid grid-cols-12 gap-4 items-center text-left max-w-lg w-full">
@@ -419,13 +475,38 @@ const UI = {
           <div class="text-xs text-white/90"><b>Effetto Leader:</b> ${opp.leader.baseDesc}</div>
           <div class="text-xs text-rose-300"><b>Soglia Critica:</b> ≤ ${opp.leader.threshold} ♥ ${opp.awakened ? "(ATTIVO)" : ""}</div>
           <div class="text-xs text-amber-200"><b>Post-Soglia:</b> ${opp.leader.awakenedDesc}</div>
-          <div class="text-xs text-yellow-300"><b>Immunità:</b> ${isImmune ? "Immune agli attacchi in questo Round" : "Nessuna"}</div>
+          <div class="text-xs text-yellow-300"><b>Immunità & Boost Attivi:</b> ${activeEffects.length > 0 ? activeEffects.join(" • ") : "Nessuno"}</div>
         </div>
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
     lucide.createIcons();
+  },
+
+  // Tracker Dinamico dei Progressi dell'Obiettivo Segreto
+  toggleObjectiveModal() {
+    const p1 = GameState.players[0];
+    const progressText = Engine.getObjectiveProgressText(p1);
+    const factionClass = DB.factions[p1.faction].cardClass;
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="liquid-glass ${factionClass} p-5 rounded-2xl max-w-md w-full flex flex-col items-center gap-2">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-amber-300">Il Tuo Obiettivo Segreto</div>
+        <h3 class="text-xl font-black text-white">${p1.objective.name}</h3>
+        <p class="text-xs text-white/90 leading-relaxed">${p1.objective.desc}</p>
+        <div class="mt-2 px-4 py-1.5 rounded-xl bg-black/45 border border-amber-400/50 text-xs font-black text-amber-300">
+          ${progressText}
+        </div>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
+  },
+
+  inspectSlot(type) {
+    const card = type === "atk" ? GameState.slotAtkCard : GameState.slotDifCard;
+    if (card) this.inspectCard(card, false);
   },
 
   // Modale simbolico di Nuovo Round con richiesta di Conferma per tutti
@@ -466,11 +547,6 @@ const UI = {
     }
   },
 
-  toggleObjectiveModal() {
-    const p1 = GameState.players[0];
-    this.showModal("Obiettivo Segreto", p1.objective.name, p1.objective.desc);
-  },
-
   toggleArenaModal() {
     if (!GameState.currentArena) return;
     const art = DB.generateUniqueCardArt(GameState.currentArena.name, "maghi", "action").replace("h-16", "h-28");
@@ -487,16 +563,19 @@ const UI = {
     document.getElementById("glass-modal").classList.remove("hidden");
   },
 
-  showActionConfirmModal(player, card, onConfirmCallback) {
+  showActionConfirmModal(player, card, onConfirmCallback, targetName = null) {
     const view = document.getElementById("modal-custom-view");
+    const targetBadge = targetName ? `<div class="px-3 py-1 rounded-full bg-rose-500/30 border border-rose-400 text-xs font-black text-rose-200">🎯 Bersaglio: ${targetName}</div>` : "";
     view.innerHTML = `
       <div class="flex flex-col items-center gap-2">
         <div class="text-xs font-bold uppercase tracking-widest text-amber-300">${player.name} gioca una Carta Azione</div>
+        ${targetBadge}
         ${this.buildCustomCardHTML(card)}
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `<button id="btn-confirm-action" class="liquid-btn-primary px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">Conferma</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
     document.getElementById("btn-confirm-action").onclick = () => {
       this.closeModal();
       if (onConfirmCallback) onConfirmCallback();
@@ -560,6 +639,92 @@ const UI = {
 
   closeModal() {
     document.getElementById("glass-modal").classList.add("hidden");
+  }
+
+  // Mostra i numeri fluttuanti (-3 PV in rosso, +2 PC in azzurro) sopra il riquadro del giocatore
+  spawnFloatingText(playerIdx, text, colorClass = "text-rose-400") {
+    const container = playerIdx === 0
+      ? document.getElementById("p1-resource-box")
+      : document.getElementById(`opp-box-${playerIdx}`);
+    if (!container) return;
+
+    const floatEl = document.createElement("div");
+    floatEl.className = `floating-number ${colorClass}`;
+    floatEl.textContent = text;
+    container.appendChild(floatEl);
+    setTimeout(() => floatEl.remove(), 1350);
+  },
+
+  // Mostra l'animazione centrale temporanea ("Marco attacca Ragnar_99")
+  showCenterActionBanner(htmlText, duration = 1700) {
+    const banner = document.getElementById("center-action-banner");
+    const content = document.getElementById("center-action-content");
+    if (!banner || !content) return;
+    content.innerHTML = htmlText;
+    banner.classList.remove("hidden");
+    setTimeout(() => banner.classList.add("hidden"), duration);
+  },
+
+  // Genera i badge visivi dei buff temporanei attivi su un giocatore
+  buildBuffBadgesHTML(p) {
+    const badges = [];
+    if (p.buffNextAttack > 0) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-rose-500/30 border border-rose-400 text-[9px] font-black text-rose-200">⚔️+${p.buffNextAttack}</span>`);
+    if (p.buffNextDefense > 0) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-sky-500/30 border border-sky-400 text-[9px] font-black text-sky-200">🛡️+${p.buffNextDefense}</span>`);
+    if (p.halfNextAttackDamage) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-purple-500/30 border border-purple-300 text-[9px] font-black text-purple-200">🔮 Dimezza ATK</span>`);
+    if (p.shieldSlamActive) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-amber-500/30 border border-amber-300 text-[9px] font-black text-amber-200">🛡️ Colpo Scudo</span>`);
+    if (p.forcedTargetByIdx !== null && p.forcedTargetByIdx !== undefined) {
+      badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-amber-500/30 border border-amber-400 text-[9px] font-black text-amber-200">🎯 Provocato</span>`);
+    }
+    return badges.join("");
+  },
+
+  // Abilita il Drag & Drop sia col Mouse che col Dito (Touch) su iPhone verso Zona ATK e Zona DIF
+  attachCardDragEvents(miniEl, card) {
+    // 1. Mouse Drag (Desktop)
+    miniEl.draggable = true;
+    miniEl.ondragstart = (ev) => ev.dataTransfer.setData("text/plain", card.uid);
+
+    // 2. Touch Drag (iOS Safari)
+    let ghost = null;
+    let moved = false;
+    let startX = 0, startY = 0;
+
+    miniEl.addEventListener("touchstart", (e) => {
+      const t = e.touches[0];
+      startX = t.clientX;
+      startY = t.clientY;
+      moved = false;
+    }, { passive: true });
+
+    miniEl.addEventListener("touchmove", (e) => {
+      const t = e.touches[0];
+      if (Math.hypot(t.clientX - startX, t.clientY - startY) < 12) return;
+      moved = true;
+      e.preventDefault(); // Impedisce lo scroll orizzontale mentre trascini la carta verso l'alto
+
+      if (!ghost) {
+        ghost = miniEl.cloneNode(true);
+        ghost.classList.add("touch-drag-ghost");
+        document.body.appendChild(ghost);
+      }
+      ghost.style.left = `${t.clientX}px`;
+      ghost.style.top = `${t.clientY}px`;
+    }, { passive: false });
+
+    miniEl.addEventListener("touchend", (e) => {
+      if (!moved || !ghost) return;
+      const t = e.changedTouches[0];
+      ghost.remove();
+      ghost = null;
+
+      const dropTarget = document.elementFromPoint(t.clientX, t.clientY);
+      if (!dropTarget) return;
+      if (dropTarget.closest("#slot-attacker") && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1) {
+        Engine.placeCardInAtkSlot(card.uid);
+      } else if (dropTarget.closest("#slot-defender") && GameState.waitingForDefenseFromP1) {
+        Engine.placeCardInDifSlot(card.uid);
+      }
+    });
   }
 };
 
@@ -649,6 +814,31 @@ const Engine = {
     return 10;
   },
 
+  getPlayerHandLimit(player) {
+    return player.leader.id === "ldr_eldoria" ? (player.awakened ? 9 : 8) : 7;
+  },
+
+  getObjectiveProgressText(p) {
+    const id = p.objective.id;
+    if (id === "obj_gob_1") return `Progresso attuale: ${p.objectiveProgress || 0}/2 scontri con 5+ danni`;
+    if (id === "obj_gob_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 difese subendo danni`;
+    if (id === "obj_gob_3") return `Stato attuale: Tu hai ${p.pc}/0 PC richiesti per il colpo di grazia`;
+    if (id === "obj_vik_1") return `Progresso attuale: ${p.objectiveProgress || 0}/4 difese a 0 danni`;
+    if (id === "obj_vik_2") return `Progresso attuale: ${p.objectiveProgress || 0}/1 eliminazioni per danno riflesso`;
+    if (id === "obj_vik_3") return `Stato attuale: ${p.pc}/10 PC • ${p.hand.length}/7 Carte • Scontro vinto nel Round: ${p.wonClashThisRound ? "Sì" : "No"}`;
+    if (id === "obj_mag_1") return `Stato attuale: ${p.hand.length}/11 Carte in mano • ${p.hp}/15 PV`;
+    if (id === "obj_mag_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 scontri vinti in svantaggio stat`;
+    if (id === "obj_mag_3") {
+      const zeroPcEnemies = this.getAlivePlayers().filter((e) => e.index !== p.index && e.pc === 0).length;
+      const totalEnemies = this.getAlivePlayers().length - 1;
+      return `Stato attuale: ${zeroPcEnemies}/${totalEnemies} avversari a 0 PC`;
+    }
+    if (id === "obj_mut_1") return `Progresso attuale: ${p.objectiveProgress || 0}/1 eliminazioni copiando il nemico`;
+    if (id === "obj_mut_2") return `Round attuale: ${GameState.round}/4+ (Richiede stessi PV e PC di un nemico a fine Round)`;
+    if (id === "obj_mut_3") return `Progresso attuale: ${(p.copiedFactions || []).length}/3 Fazioni copiate`;
+    return `Progresso attuale: ${p.objectiveProgress || 0}`;
+  },
+
   getEffectiveCardCost(player, card) {
     let cost = card.cost;
     if (card.type === "action") {
@@ -694,6 +884,7 @@ const Engine = {
     }
 
     target.hp = Math.max(0, target.hp - amount);
+    UI.spawnFloatingText(target.index, `-${amount} PV`, "text-rose-400");
     if (sourcePlayer && sourcePlayer.index !== target.index) {
       target.lastDamagedBy = sourcePlayer.index;
     }
@@ -740,12 +931,20 @@ const Engine = {
   },
 
   healPlayer(player, amount) {
-    if (player.eliminated) return;
+    if (player.eliminated || amount <= 0) return;
+    const before = player.hp;
     player.hp = Math.min(player.maxHp, player.hp + amount);
+    if (player.hp > before) UI.spawnFloatingText(player.index, `+${player.hp - before} PV`, "text-emerald-400");
   },
 
   gainPc(player, amount) {
+    if (amount === 0) return;
+    const before = player.pc;
     player.pc = Math.min(this.getMaxPcCap(), Math.max(0, player.pc + amount));
+    const diff = player.pc - before;
+    if (diff !== 0) {
+      UI.spawnFloatingText(player.index, `${diff > 0 ? "+" : ""}${diff} PC`, diff > 0 ? "text-cyan-300" : "text-amber-400");
+    }
   },
 
   shiftArena() {
@@ -780,19 +979,70 @@ const Engine = {
     }
   },
 
-  playActionCard(player, card) {
+  // Verifica se una Carta Azione richiede di scegliere un bersaglio avversario
+  getValidTargetsForAction(player, effectCode) {
+    const enemies = this.getAlivePlayers().filter((p) => p.index !== player.index);
+    const targetedEffects = [
+      "act_gob_sabotage", "act_vik_taunt", "act_mag_bolt",
+      "act_mag_amnesia", "act_mut_balance", "act_mut_equality"
+    ];
+    if (!targetedEffects.includes(effectCode)) return null;
+    if (effectCode === "act_gob_sabotage" || effectCode === "act_mag_amnesia") {
+      const withPc = enemies.filter((e) => e.pc > 0);
+      return (withPc.length > 0 ? withPc : enemies).map((e) => e.index);
+    }
+    return enemies.map((e) => e.index);
+  },
+
+  handlePendingTargetClick(targetIdx) {
+    const pending = GameState.pendingTargetSelection;
+    if (!pending || !pending.validTargets.includes(targetIdx)) {
+      UI.showToastPopup("Seleziona uno dei giocatori evidenziati in azzurro!", 1400);
+      return;
+    }
+    GameState.pendingTargetSelection = null;
+    pending.onSelect(targetIdx);
+  },
+
+  initiateActionPlay(playerIdx, cardUid, onAfterConfirm = null) {
+    const player = GameState.players[playerIdx];
+    const card = player.hand.find((c) => c.uid === cardUid);
+    if (!card) return;
     const cost = this.getEffectiveCardCost(player, card);
-    player.pc -= cost;
+    if (player.pc < cost) {
+      UI.showToastPopup("PC insufficienti per questa Carta Azione!", 1400);
+      return;
+    }
+
+    const validTargets = this.getValidTargetsForAction(player, card.effectCode);
+    if (playerIdx === 0 && validTargets && validTargets.length > 0) {
+      GameState.pendingTargetSelection = {
+        validTargets,
+        onSelect: (chosenTargetIdx) => {
+          this.executeActionCardEffect(player, card, chosenTargetIdx, onAfterConfirm);
+        }
+      };
+      UI.renderTable();
+      UI.showToastPopup(`Scegli a sinistra l'avversario bersaglio per ${card.name}!`, 1800);
+    } else {
+      const aiTargetIdx = validTargets && validTargets.length > 0
+        ? validTargets[Math.floor(Math.random() * validTargets.length)]
+        : null;
+      this.executeActionCardEffect(player, card, aiTargetIdx, onAfterConfirm);
+    }
+  },
+
+  executeActionCardEffect(player, card, targetIdx = null, onAfterConfirm = null) {
+    const cost = this.getEffectiveCardCost(player, card);
+    this.gainPc(player, -cost);
     player.hand = player.hand.filter((c) => c.uid !== card.uid);
 
-    // Eldoria Risvegliata cura di 1 HP sulla prima Azione
     if (player.leader.id === "ldr_eldoria" && player.awakened && player.actionsPlayedThisTurn === 0) {
       this.healPlayer(player, 1);
     }
     player.actionsPlayedThisTurn++;
 
-    const enemies = this.getAlivePlayers().filter((p) => p.index !== player.index);
-    const randomEnemy = enemies[Math.floor(Math.random() * enemies.length)];
+    const targetEnemy = targetIdx !== null ? GameState.players[targetIdx] : null;
 
     switch (card.effectCode) {
       case "act_gob_pact":
@@ -808,9 +1058,9 @@ const Engine = {
         this.gainPc(player, 4);
         break;
       case "act_gob_sabotage":
-        if (randomEnemy) {
-          randomEnemy.pc = Math.max(0, randomEnemy.pc - 2);
-          player.forbidAttackTarget = randomEnemy.index;
+        if (targetEnemy) {
+          this.gainPc(targetEnemy, -2);
+          player.forbidAttackTarget = targetEnemy.index;
         }
         break;
       case "act_vik_shieldbuff":
@@ -826,6 +1076,7 @@ const Engine = {
         break;
       case "act_vik_taunt":
         this.drawCards(player, 1);
+        if (targetEnemy) targetEnemy.forcedTargetByIdx = player.index;
         break;
       case "act_vik_shieldslam":
         player.shieldSlamActive = true;
@@ -842,12 +1093,12 @@ const Engine = {
         player.halfNextAttackDamage = true;
         break;
       case "act_mag_bolt":
-        if (randomEnemy) this.applyDirectDamage(randomEnemy, 2, player);
+        if (targetEnemy) this.applyDirectDamage(targetEnemy, 2, player);
         break;
       case "act_mag_amnesia":
-        if (randomEnemy) {
-          randomEnemy.pc = Math.max(0, randomEnemy.pc - 2);
-          if (randomEnemy.hand.length > 0) randomEnemy.hand.pop();
+        if (targetEnemy) {
+          this.gainPc(targetEnemy, -2);
+          if (targetEnemy.hand.length > 0) targetEnemy.hand.pop();
         }
         break;
       case "act_mut_molt":
@@ -859,9 +1110,9 @@ const Engine = {
         player.buffNextDefense += 2;
         break;
       case "act_mut_balance":
-        if (randomEnemy && player.hp < randomEnemy.hp) {
+        if (targetEnemy && player.hp < targetEnemy.hp) {
           this.healPlayer(player, 2);
-          this.applyDirectDamage(randomEnemy, 1, player);
+          this.applyDirectDamage(targetEnemy, 1, player);
         } else {
           this.drawCards(player, 2);
         }
@@ -870,57 +1121,82 @@ const Engine = {
         player.buffNextDefense += 3;
         break;
       case "act_mut_equality":
-        if (randomEnemy) player.pc = randomEnemy.pc;
+        if (targetEnemy) this.gainPc(player, targetEnemy.pc - player.pc);
         break;
     }
 
     if (card.shift) this.shiftArena();
-    UI.setBanner(`✨ ${player.name} gioca l'Azione <b>${card.name}</b>!`);
     UI.renderTable();
+    UI.showActionConfirmModal(player, card, () => {
+      UI.renderTable();
+      if (onAfterConfirm) onAfterConfirm();
+    }, targetEnemy?.name || null);
   },
 
   activateLeaderSkill(playerIdx) {
     const player = GameState.players[playerIdx];
     if (GameState.activePlayerIndex !== playerIdx || player.usedLeaderThisRound) {
-      UI.setBanner(`Abilità Leader già usata in questo Round o non è il tuo turno.`);
+      UI.showToastPopup("Abilità Leader già usata in questo Round o non è il tuo turno!");
       return;
     }
-    if (player.leader.skillType !== "active") {
-      UI.setBanner(`${player.leader.name} ha un'abilità Passiva sempre attiva!`);
-      return;
-    }
+    if (player.leader.skillType !== "active") return;
 
-    player.usedLeaderThisRound = true;
     if (player.leader.id === "ldr_zarok") {
+      player.usedLeaderThisRound = true;
       if (!player.awakened) this.applyDirectDamage(player, 2, player);
       player.buffNextAttack += 3;
-      UI.setBanner(`👑 ${player.leader.name} attiva Furia: +3 ATK al prossimo attacco!`);
+      UI.renderTable();
     } else if (player.leader.id === "ldr_squik") {
+      player.usedLeaderThisRound = true;
       if (player.hand.length > 0) player.hand.pop();
       this.drawCards(player, 2);
       if (player.awakened) this.gainPc(player, 1);
-      UI.setBanner(`👑 Squik mescola le pozioni: pescate 2 carte!`);
+      UI.renderTable();
     } else if (player.leader.id === "ldr_malakor") {
-      const target = this.getAlivePlayers().find((p) => p.index !== player.index && p.pc >= (player.awakened ? 3 : 4));
-      if (target) {
-        target.pc -= 1;
-        this.gainPc(player, 1);
-        if (player.awakened) {
-          this.applyDirectDamage(target, 1, player);
-          this.healPlayer(player, 1);
+      const minPc = player.awakened ? 3 : 4;
+      const valid = this.getAlivePlayers().filter((p) => p.index !== player.index && p.pc >= minPc).map((p) => p.index);
+      if (valid.length === 0) {
+        UI.showToastPopup(`Nessun avversario ha almeno ${minPc} PC!`, 1500);
+        return;
+      }
+      GameState.pendingTargetSelection = {
+        validTargets: valid,
+        onSelect: (tIdx) => {
+          player.usedLeaderThisRound = true;
+          const target = GameState.players[tIdx];
+          this.gainPc(target, -1);
+          this.gainPc(player, 1);
+          if (player.awakened) {
+            this.applyDirectDamage(target, 1, player);
+            this.healPlayer(player, 1);
+          }
+          UI.renderTable();
         }
-        UI.setBanner(`👑 Malakor drena risorse da ${target.name}!`);
-      }
+      };
+      UI.renderTable();
+      UI.showToastPopup("Scegli a sinistra da quale avversario rubare con Malakor!", 1700);
     } else if (player.leader.id === "ldr_morphos") {
-      const target = this.getAlivePlayers().find((p) => p.index !== player.index);
-      if (target) {
-        this.healPlayer(player, 1);
-        this.gainPc(player, 1);
-        this.applyDirectDamage(target, 1, player);
-        UI.setBanner(`👑 Morphos assorbe energia vitale da ${target.name}!`);
+      const valid = this.getAlivePlayers()
+        .filter((p) => p.index !== player.index && (player.awakened ? (p.hp > player.hp || p.pc > player.pc) : (p.hp > player.hp && p.pc > player.pc)))
+        .map((p) => p.index);
+      if (valid.length === 0) {
+        UI.showToastPopup("Nessun avversario soddisfa i requisiti di Morphos!", 1500);
+        return;
       }
+      GameState.pendingTargetSelection = {
+        validTargets: valid,
+        onSelect: (tIdx) => {
+          player.usedLeaderThisRound = true;
+          const target = GameState.players[tIdx];
+          this.healPlayer(player, 1);
+          this.gainPc(player, 1);
+          this.applyDirectDamage(target, 1, player);
+          UI.renderTable();
+        }
+      };
+      UI.renderTable();
+      UI.showToastPopup("Scegli a sinistra da quale avversario assorbire con Morphos!", 1700);
     }
-    UI.renderTable();
   },
 
   isValidAttackTarget(attackerIdx, targetIdx) {
@@ -994,25 +1270,13 @@ const Engine = {
     this.finishCombatResolution(GameState.currentAttackingPlayerIdx, 0, GameState.slotAtkCard, card);
   },
 
-  playActionWithConfirm(playerIdx, cardUid, onAfterConfirm = null) {
-    const player = GameState.players[playerIdx];
-    const card = player.hand.find((c) => c.uid === cardUid);
-    if (!card) return;
-    this.playActionCard(player, card);
-    UI.renderTable();
-    UI.showActionConfirmModal(player, card, () => {
-      UI.renderTable();
-      if (onAfterConfirm) onAfterConfirm();
-    });
-  },
-
   // Fase 1 Scontro: Pone la carta in Zona ATK e illumina di rosso chi deve difendersi
   resolveCombat(attackerIdx, defenderIdx, atkCard) {
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
 
     const atkCost = this.getEffectiveCardCost(attacker, atkCard);
-    attacker.pc = Math.max(0, attacker.pc - atkCost);
+    this.gainPc(attacker, -atkCost);
     attacker.hand = attacker.hand.filter((c) => c.uid !== atkCard.uid);
 
     if (attacker.leader.id === "ldr_vaelen" && atkCard.cost >= 5) {
@@ -1025,6 +1289,7 @@ const Engine = {
     GameState.slotAtkCard = atkCard;
     GameState.slotDifCard = null;
     UI.renderTable();
+    UI.showCenterActionBanner(`⚔️ <span>${attacker.name}</span> <span class="text-rose-400">attacca</span> <span>${defender.name}!</span>`, 1800);
 
     // Se il difensore sono io (P1) e ho almeno una Creatura che posso permettermi, attendo che io trascini in Zona DIF
     if (defenderIdx === 0) {
@@ -1061,7 +1326,7 @@ const Engine = {
 
     if (defCard) {
       const defCost = this.getEffectiveCardCost(defender, defCard);
-      defender.pc = Math.max(0, defender.pc - defCost);
+      this.gainPc(defender, -defCost);
       defender.hand = defender.hand.filter((c) => c.uid !== defCard.uid);
       GameState.slotDifCard = defCard;
     }
@@ -1132,6 +1397,10 @@ const Engine = {
       if (attacker.objective.id === "obj_gob_1" && damage >= 5) {
         attacker.objectiveProgress++;
         if (attacker.objectiveProgress >= 2) this.triggerVictory(attacker, "Obiettivo Furia Cieca completato!");
+      }
+      if (defender.objective.id === "obj_gob_2" && defender.hp > 0) {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (defender.objectiveProgress >= 3) this.triggerVictory(defender, "Obiettivo Carne da Macello completato!");
       }
     } else if (defCard) {
       defender.wonClashThisRound = true;
@@ -1284,7 +1553,7 @@ const Engine = {
       (c) => c.type === "action" && ai.pc >= this.getEffectiveCardCost(ai, c)
     );
     if (playableActions.length > 0 && ai.pc >= 4) {
-      this.playActionWithConfirm(aiIdx, playableActions[0].uid, proceedToAttackOrPass);
+      this.initiateActionPlay(aiIdx, playableActions[0].uid, proceedToAttackOrPass);
     } else {
       proceedToAttackOrPass();
     }
@@ -1301,6 +1570,8 @@ const Engine = {
     GameState.gameOver = true;
     UI.showModal("🏆 VITTORIA!", `${winner.name} ha vinto!`, `${reason}\n\nFazione: ${DB.factions[winner.faction].name} • Leader: ${winner.leader.name}`);
   }
+  
+  
 };
 
 window.addEventListener("DOMContentLoaded", () => UI.init());

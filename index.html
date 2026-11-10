@@ -34,8 +34,8 @@
     <!-- ==========================================
          SCHERMATA 1: MENU PRINCIPALE & LOBBY (iOS Liquid Glass)
          ========================================== -->
-    <section id="screen-menu" class="flex flex-col justify-between h-full py-6 px-4 transition-all duration-500">
-      
+    <section id="screen-menu" class="flex flex-col justify-between h-full py-4 px-4 overflow-y-auto no-scrollbar transition-all duration-500">
+         
       <!-- Header Titolo -->
       <div class="text-center mt-6">
         <span class="px-3 py-1 text-[11px] font-semibold tracking-widest uppercase rounded-full liquid-pill text-cyan-300">
@@ -71,6 +71,17 @@
               <i data-lucide="wifi" class="w-4 h-4"></i> Entra
             </button>
           </div>
+          <!-- NUOVO: Pannello Lobby Giocatori Connessi in Tempo Reale -->
+            <div id="lobby-box" class="hidden flex-col gap-2 bg-black/35 p-3 rounded-2xl border border-cyan-400/30 mt-2">
+            <div class="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-cyan-300">
+                <span>Stanza: <b id="lobby-room-label"></b></span>
+                <span id="lobby-count-label">1/4 Giocatori</span>
+            </div>
+            <div id="lobby-players-list" class="flex flex-col gap-1 text-xs text-white/90"></div>
+            <button onclick="UI.goToSetup()" class="liquid-btn-gold w-full py-2 mt-1 rounded-xl font-bold text-xs">
+                Avvia Setup Partita
+            </button>
+            </div>
         </div>
 
         <div class="h-[1px] bg-white/10 my-1"></div>
@@ -219,32 +230,36 @@
         <!-- COLONNA DESTRA (3 col): RISORSE/COPPA/ARENA IN ALTO + ARTWORK LEADER IN BASSO -->
         <div class="col-span-3 flex flex-col justify-between items-end h-full z-20">
 
-        <!-- In alto a destra: Solo Icone Vita, Costo, Coppa Obiettivo e Info Arena -->
-        <div class="flex flex-col gap-2 items-end w-full">
-            <div class="flex items-center gap-2">
-            <!-- Vita (Solo Icona + Numero) -->
-            <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-rose-300 font-black text-sm">
-                <i data-lucide="heart" class="w-4 h-4 fill-current"></i>
-                <span id="p1-hp">20</span>
-            </div>
-            <!-- Costo (Solo Icona + Numero) -->
-            <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-cyan-300 font-black text-sm">
-                <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
-                <span id="p1-pc">5</span>
-            </div>
-            </div>
-
-            <div class="flex items-center gap-2">
-            <!-- Tab Info Obiettivo (Icona Coppa) -->
-            <button onclick="UI.toggleObjectiveModal()" class="liquid-pill p-2.5 rounded-2xl text-amber-300 active:scale-95 transition">
-                <i data-lucide="trophy" class="w-4 h-4"></i>
-            </button>
-            <!-- Tasto Info Carta Arena (se attiva) -->
-            <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill p-2.5 rounded-2xl text-cyan-300 active:scale-95 transition">
-                <i data-lucide="map" class="w-4 h-4"></i>
-            </button>
-            </div>
+        <!-- In alto a destra: Vita, Costo, Buff Attivi, Contatore Mano, Coppa Obiettivo e Arena -->
+      <div id="p1-resource-box" class="relative flex flex-col gap-1.5 items-end w-full">
+        <div class="flex items-center gap-2">
+          <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-rose-300 font-black text-sm">
+            <i data-lucide="heart" class="w-4 h-4 fill-current"></i>
+            <span id="p1-hp">20</span>
+          </div>
+          <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-cyan-300 font-black text-sm">
+            <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
+            <span id="p1-pc">5</span>
+          </div>
         </div>
+
+        <!-- Badge dei Buff Temporanei Attivi su P1 -->
+        <div id="p1-buff-row" class="flex flex-wrap justify-end gap-1 min-h-[18px]"></div>
+
+        <!-- Linea Obiettivo, Arena e Contatore Carte in Mano (con Max raggiungibile) -->
+        <div class="flex items-center gap-1.5">
+          <div class="liquid-pill px-2.5 py-2 rounded-2xl text-[11px] font-black text-white/90 flex items-center gap-1" title="Carte in mano / Limite Massimo">
+            <span>🃏</span>
+            <span id="p1-hand-counter">5/7</span>
+          </div>
+          <button onclick="UI.toggleObjectiveModal()" class="liquid-pill p-2.5 rounded-2xl text-amber-300 active:scale-95 transition">
+            <i data-lucide="trophy" class="w-4 h-4"></i>
+          </button>
+          <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill p-2.5 rounded-2xl text-cyan-300 active:scale-95 transition">
+            <i data-lucide="map" class="w-4 h-4"></i>
+          </button>
+        </div>
+      </div>
 
         <!-- In basso a destra: Artwork del mio Leader (Cliccabile per dettagli + Uso abilità) -->
         <div id="my-leader-portrait" onclick="UI.inspectMyLeader()" 
@@ -262,8 +277,14 @@
     </div>
 
     <!-- TAB VISIVO UNIVERSALE (Carta Custom, Scontro Animato, Azione con Conferma, Info Leader) -->
-    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
-        <div id="modal-content-box" class="liquid-glass p-4 max-w-2xl w-full flex flex-col items-center gap-3 text-center animate-pop">
+    <!-- ANIMAZIONE CENTRALE ANNUNCIO ATTACCO / AZIONE ("P1 attacca P2") -->
+    <div id="center-action-banner" class="hidden fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
+        <div id="center-action-content" class="liquid-glass px-7 py-3.5 rounded-3xl border-2 border-rose-400/80 text-base font-black tracking-wide text-white shadow-2xl flex items-center gap-3 animate-pop"></div>
+    </div>
+
+    <!-- TAB VISIVO SENZA RIQUADRO GRIGIO DI SFONDO (Supporta Swipe Orizzontale) -->
+    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
+        <div id="modal-content-box" class="max-w-2xl w-full flex flex-col items-center gap-3 text-center animate-pop">
         <div id="modal-custom-view" class="w-full flex items-center justify-center"></div>
         <div id="modal-actions" class="flex gap-3 mt-1 w-full justify-center">
             <button id="modal-close-btn" onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>
