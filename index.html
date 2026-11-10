@@ -29,7 +29,7 @@
   </div>
 
   <!-- CONTENITORE PRINCIPALE IPHONE (Rispetta Dynamic Island e Home Indicator) -->
-  <main id="app-container" class="relative z-10 w-full h-[100dvh] max-w-[440px] mx-auto flex flex-col justify-between safe-area-padding overflow-hidden">
+  <main id="app-container" class="relative z-10 w-screen h-[100dvh] flex flex-col justify-between safe-area-landscape overflow-hidden">
 
     <!-- ==========================================
          SCHERMATA 1: MENU PRINCIPALE & LOBBY (iOS Liquid Glass)
@@ -164,123 +164,115 @@
     <!-- ==========================================
          SCHERMATA 3: IL TAVOLO DA GIOCO A 4 GIOCATORI
          ========================================== -->
-    <section id="screen-table" class="hidden flex-col justify-between h-full py-2 px-2.5 relative">
-      
-      <!-- BARRA SUPERIORE: I 3 AVVERSARI (P2, P3, P4) -->
-      <div id="opponents-row" class="grid grid-cols-3 gap-2 z-20">
-        <!-- Generato dinamicamente: Pillole Liquid Glass per P2, P3, P4 con HP, PC, carte in mano, stato Immunità e Risveglio -->
-      </div>
+    <section id="screen-table" class="hidden w-full h-full grid grid-cols-12 gap-2 p-2 relative">
 
-      <!-- FASCIA INFORMATIVA: ORDINE ROUND & CAMPO DI BATTAGLIA ATTIVO -->
-      <div class="flex items-center justify-between gap-2 my-1 z-20">
-        <div id="round-badge" class="liquid-pill px-3 py-1.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5">
-          <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
-          <span id="round-text">Round 1 • Turno: P1</span>
+        <!-- COLONNA SINISTRA (3 col): AVVERSARI IN VERTICALE (P2, P3, P4) -->
+        <div id="opponents-col" class="col-span-3 flex flex-col justify-between gap-2 h-full z-20">
+        <!-- Popolato da UI.renderTable() -->
         </div>
 
-        <!-- Badge Arena Attiva (Cliccabile per leggere i dettagli) -->
-        <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill px-3 py-1.5 rounded-full text-[11px] font-semibold flex items-center gap-1.5 text-cyan-200">
-          <i data-lucide="compass" class="w-3.5 h-3.5"></i>
-          <span id="arena-name-text">Tundra Perenne</span>
-        </button>
-      </div>
+        <!-- COLONNA CENTRALE (6 col): ZONA ATK/DIF + PASSA + MANO -->
+        <div class="col-span-6 flex flex-col justify-between items-center h-full z-20">
 
-      <!-- CENTRO TAVOLO: ZONA DI COMBATTIMENTO & LOG ISTANTANEO -->
-      <div id="battle-stage" class="relative my-auto flex flex-col items-center justify-center min-h-[210px] z-10">
-        
-        <!-- Messaggio di stato / Istruzione contestuale -->
-        <div id="table-status-banner" class="liquid-glass px-4 py-2 rounded-2xl text-xs text-center text-white/90 max-w-[92%] mb-2 shadow-md">
-          Tocca una Carta Azione per usarla o seleziona una Creatura e un Bersaglio per attaccare.
+        <!-- In alto centralmente: Zona Carta ATK e Zona Carta DIF -->
+        <div class="flex items-center justify-center gap-6 mt-1">
+            <div class="flex flex-col items-center">
+            <span id="atk-player-label" class="text-[10px] font-bold uppercase tracking-wider text-rose-300 mb-1 h-4"></span>
+            <div id="slot-attacker"
+                ondragover="event.preventDefault()"
+                ondrop="Engine.onSlotDrop(event, 'atk')"
+                onclick="UI.inspectSlot('atk')"
+                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+                <span>Zona ATK</span>
+            </div>
+            </div>
+
+            <div class="flex flex-col items-center">
+            <span id="dif-player-label" class="text-[10px] font-bold uppercase tracking-wider text-sky-300 mb-1 h-4"></span>
+            <div id="slot-defender"
+                ondragover="event.preventDefault()"
+                ondrop="Engine.onSlotDrop(event, 'dif')"
+                onclick="UI.inspectSlot('dif')"
+                class="battle-slot-landscape flex flex-col items-center justify-center text-white/30 text-xs cursor-pointer">
+                <span>Zona DIF</span>
+            </div>
+            </div>
         </div>
 
-        <!-- Slot Scontro (Attaccante vs Difensore) -->
-        <div id="clash-zone" class="flex items-center justify-center gap-5 min-h-[150px] w-full">
-          <div id="slot-attacker" class="battle-slot flex flex-col items-center justify-center text-white/30 text-xs">
-            <span>Attaccante</span>
-          </div>
-          <div class="text-xl font-black text-white/40 italic">VS</div>
-          <div id="slot-defender" class="battle-slot flex flex-col items-center justify-center text-white/30 text-xs">
-            <span>Difensore</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- CRUSCOTTO GIOCATORE (P1): HP, PC, LEADER, OBIETTIVO E PASSA TURNO -->
-      <div class="liquid-glass p-2.5 rounded-3xl flex flex-col gap-2 z-20">
-        
-        <div class="flex items-center justify-between gap-1.5">
-          <!-- Gemma Punti Vita (HP) + Tetto Cicatrice -->
-          <div class="flex items-center gap-2 liquid-pill px-3 py-1.5 rounded-2xl">
-            <div class="w-6 h-6 rounded-full bg-rose-500/30 border border-rose-400/60 flex items-center justify-center text-rose-300">
-              <i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>
-            </div>
-            <div>
-              <div class="text-[9px] uppercase tracking-wider text-white/50">Vita (HP)</div>
-              <div id="p1-hp" class="text-sm font-black text-rose-200">20<span id="p1-max-hp" class="text-[10px] text-white/40">/20</span></div>
-            </div>
-          </div>
-
-          <!-- Gemma Punti Costo (PC) -->
-          <div class="flex items-center gap-2 liquid-pill px-3 py-1.5 rounded-2xl">
-            <div class="w-6 h-6 rounded-full bg-cyan-500/30 border border-cyan-400/60 flex items-center justify-center text-cyan-300">
-              <i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>
-            </div>
-            <div>
-              <div class="text-[9px] uppercase tracking-wider text-white/50">Costo (PC)</div>
-              <div id="p1-pc" class="text-sm font-black text-cyan-200">5<span class="text-[10px] text-white/40">/10</span></div>
-            </div>
-          </div>
-
-          <!-- Bottone Abilità Leader (Si illumina in Risveglio!) -->
-          <button id="btn-leader-skill" onclick="UI.useLeaderAbility()" class="liquid-pill px-2.5 py-1.5 rounded-2xl flex items-center gap-1.5 text-left active:scale-95 transition">
-            <i data-lucide="crown" class="w-4 h-4 text-amber-300 shrink-0"></i>
-            <div class="leading-tight">
-              <div id="p1-leader-name" class="text-[10px] font-bold text-amber-200 truncate max-w-[75px]">Leader</div>
-              <div id="p1-leader-state" class="text-[9px] text-white/60">Abilità</div>
-            </div>
-          </button>
-
-          <!-- Bottone Obiettivo Segreto -->
-          <button onclick="UI.toggleObjectiveModal()" class="liquid-pill p-2 rounded-2xl text-amber-300" title="Il tuo Obiettivo">
-            <i data-lucide="eye" class="w-4 h-4"></i>
-          </button>
-
-          <!-- Bottone Passa Turno (Banking PC) -->
-          <button id="btn-pass-turn" onclick="UI.passTurn()" class="liquid-btn-secondary px-3 py-2 rounded-2xl text-[11px] font-bold">
+        <!-- Centralmente sopra la mano: Tasto "Passa" -->
+        <div class="my-1">
+            <button id="btn-pass-turn" onclick="UI.passTurn()" class="liquid-glass px-8 py-1.5 rounded-full text-xs font-black tracking-widest uppercase active:scale-95 transition">
             Passa
-          </button>
+            </button>
         </div>
 
-        <!-- MANO DEL GIOCATORE (Scorrimento orizzontale fluido in stile ventaglio iOS) -->
-        <div class="relative pt-2 pb-1">
-          <div class="flex items-center justify-between text-[10px] text-white/50 px-1 mb-1">
-            <span>La tua Mano (<span id="p1-hand-count">5</span>/7)</span>
-            <span>Mazzo: <span id="p1-deck-count">35</span> carte</span>
-          </div>
-          <div id="player-hand" class="flex items-center gap-2.5 overflow-x-auto no-scrollbar px-1 py-2 min-h-[168px]">
-            <!-- Le carte con design unico vengono renderizzate qui -->
-          </div>
+        <!-- In basso centralmente: La mia mano (Solo Immagine, PC, ATK, DIF) -->
+        <div id="player-hand" class="flex items-center justify-center gap-2 overflow-x-auto no-scrollbar w-full px-2 py-1 min-h-[118px]">
+            <!-- Carte compatte trascinabili -->
+        </div>
         </div>
 
-      </div>
+        <!-- COLONNA DESTRA (3 col): RISORSE/COPPA/ARENA IN ALTO + ARTWORK LEADER IN BASSO -->
+        <div class="col-span-3 flex flex-col justify-between items-end h-full z-20">
+
+        <!-- In alto a destra: Solo Icone Vita, Costo, Coppa Obiettivo e Info Arena -->
+        <div class="flex flex-col gap-2 items-end w-full">
+            <div class="flex items-center gap-2">
+            <!-- Vita (Solo Icona + Numero) -->
+            <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-rose-300 font-black text-sm">
+                <i data-lucide="heart" class="w-4 h-4 fill-current"></i>
+                <span id="p1-hp">20</span>
+            </div>
+            <!-- Costo (Solo Icona + Numero) -->
+            <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-cyan-300 font-black text-sm">
+                <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
+                <span id="p1-pc">5</span>
+            </div>
+            </div>
+
+            <div class="flex items-center gap-2">
+            <!-- Tab Info Obiettivo (Icona Coppa) -->
+            <button onclick="UI.toggleObjectiveModal()" class="liquid-pill p-2.5 rounded-2xl text-amber-300 active:scale-95 transition">
+                <i data-lucide="trophy" class="w-4 h-4"></i>
+            </button>
+            <!-- Tasto Info Carta Arena (se attiva) -->
+            <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill p-2.5 rounded-2xl text-cyan-300 active:scale-95 transition">
+                <i data-lucide="map" class="w-4 h-4"></i>
+            </button>
+            </div>
+        </div>
+
+        <!-- In basso a destra: Artwork del mio Leader (Cliccabile per dettagli + Uso abilità) -->
+        <div id="my-leader-portrait" onclick="UI.inspectMyLeader()" 
+            class="liquid-glass w-28 h-28 rounded-3xl p-1.5 cursor-pointer relative overflow-hidden flex flex-col justify-end items-center group active:scale-95 transition">
+            <div id="my-leader-art" class="absolute inset-0 z-0"></div>
+            <span id="p1-leader-name" class="relative z-10 text-[10px] font-black bg-black/60 px-2 py-0.5 rounded-full truncate max-w-full">Leader</span>
+        </div>
+
+        </div>
     </section>
 
-    <!-- MODALE ISPEZIONE CARTA / OBIETTIVO / ARENA (Liquid Glass Overlay) -->
-    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/60 backdrop-blur-md flex items-center justify-center p-5">
-      <div class="liquid-glass p-5 max-w-xs w-full flex flex-col gap-3 text-center animate-pop">
-        <div id="modal-badge" class="text-[10px] font-bold uppercase tracking-widest text-cyan-300">Dettaglio</div>
-        <h3 id="modal-title" class="text-xl font-black">Titolo</h3>
-        <p id="modal-body" class="text-xs text-white/80 leading-relaxed"></p>
-        <div id="modal-actions" class="flex gap-2 mt-2">
-          <button onclick="UI.closeModal()" class="liquid-pill w-full py-2.5 rounded-xl text-xs font-bold">Chiudi</button>
-        </div>
-      </div>
+    <!-- POPUP TOAST AUTOMATICO ("Tocca a..." / "Nuovo Round...") -->
+    <div id="turn-popup" class="hidden fixed inset-0 z-40 pointer-events-none flex items-center justify-center">
+        <div id="turn-popup-text" class="liquid-glass px-8 py-4 text-xl font-black tracking-wide text-white shadow-2xl animate-pop"></div>
     </div>
 
-  </main>
+    <!-- TAB VISIVO UNIVERSALE (Carta Custom, Scontro Animato, Azione con Conferma, Info Leader) -->
+    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/75 backdrop-blur-md flex items-center justify-center p-4">
+        <div id="modal-content-box" class="liquid-glass p-4 max-w-2xl w-full flex flex-col items-center gap-3 text-center animate-pop">
+        <div id="modal-custom-view" class="w-full flex items-center justify-center"></div>
+        <div id="modal-actions" class="flex gap-3 mt-1 w-full justify-center">
+            <button id="modal-close-btn" onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>
+        </div>
+        </div>
+    </div>
+
+    </main>
 
   <!-- Script Modulari (Che genereremo nelle Parti 2 e 3) -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script src="database.js"></script>
   <script src="engine.js"></script>
+  <script src="multiplayer.js"></script>
 </body>
 </html>

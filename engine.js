@@ -9,14 +9,21 @@ const GameState = {
     awakeningEnabled: true
   },
   round: 1,
-  baseOrder: [0, 1, 2, 3], // Shifta di 1 a ogni nuovo Round Globale
+  baseOrder: [0, 1, 2, 3],
   activePlayerIndex: 0,
-  lastAttackerIndex: null, // Per vietare il contrattacco diretto (salvo 1v1)
+  lastAttackerIndex: null,
   currentArena: null,
   selectedFaction: null,
   drawnObjective: null,
   selectedLeader: null,
   selectedCardUid: null,
+  // --- NUOVE VARIABILI PER SLOT ATK/DIF E DIFESA ATTIVA ---
+  currentAttackingPlayerIdx: null,
+  currentDefendingPlayerIdx: null,
+  slotAtkCard: null,
+  slotDifCard: null,
+  waitingForDefenseFromP1: false,
+  // --------------------------------------------------------
   players: [],
   gameOver: false
 };
@@ -148,195 +155,303 @@ const UI = {
     Engine.setupMatch();
   },
 
-  // Renderizza l'intero stato del tavolo su iPhone
+  // Costruisce la carta col tuo template grafico card_template.jpg
+  buildCustomCardHTML(card, extraClass = "") {
+    if (!card) return "";
+    const isCreature = card.type === "creature";
+    return `
+      <div class="custom-card-frame ${extraClass}">
+        <div class="cc-cost">${card.cost}</div>
+        <div class="cc-name truncate px-1">${card.name}</div>
+        <div class="cc-art">${card.svgArt.replace('h-16', 'h-full')}</div>
+        <div class="cc-effect px-1">${card.effectText}</div>
+        <div class="cc-atk">${isCreature ? (card.computedAtk ?? card.atk) : "—"}</div>
+        <div class="cc-dif">${isCreature ? (card.computedDif ?? card.dif) : "—"}</div>
+      </div>
+    `;
+  },
+
+  // Popup automatico ("Tocca a..." / "Nuovo round...")
+  showToastPopup(text, duration = 1500) {
+    const pop = document.getElementById("turn-popup");
+    const txt = document.getElementById("turn-popup-text");
+    if (!pop || !txt) return;
+    txt.textContent = text;
+    pop.classList.remove("hidden");
+    setTimeout(() => pop.classList.add("hidden"), duration);
+  },
+
+  setBanner(msg) {
+    // Mantenuto per retrocompatibilità: mostra un toast rapido
+    this.showToastPopup(msg.replace(/<[^>]*>?/gm, ''), 1600);
+  },
+
   renderTable() {
     const p1 = GameState.players[0];
 
-    // 1. Arena attiva e Sfondo dinamico
-    const arenaBadge = document.getElementById("arena-badge");
+    // 1. Sfondo Arena
     if (GameState.options.arenasEnabled && GameState.currentArena) {
-      arenaBadge.classList.remove("hidden");
-      document.getElementById("arena-name-text").textContent = GameState.currentArena.name;
       const orbs = document.querySelectorAll(".ambient-orb");
       GameState.currentArena.orbColors.forEach((col, idx) => {
         if (orbs[idx]) orbs[idx].style.background = col;
       });
-    } else {
-      arenaBadge.classList.add("hidden");
     }
 
-    // 2. Round e Turno attivo
-    const activeP = GameState.players[GameState.activePlayerIndex];
-    document.getElementById("round-text").textContent = `Round ${GameState.round} • Turno: ${activeP.name}`;
-
-    // 3. Renderizza i 3 Avversari (P2, P3, P4) nella Top Bar
-    const oppRow = document.getElementById("opponents-row");
-    oppRow.innerHTML = "";
+    // 2. Colonna Sinistra: I 3 Avversari (Verde = turno, Rosso = attaccato, Giallo = immune)
+    const oppCol = document.getElementById("opponents-col");
+    oppCol.innerHTML = "";
     GameState.players.slice(1).forEach((opp) => {
-      const isTurn = GameState.activePlayerIndex === opp.index;
-      const canBeAttacked = Engine.isValidAttackTarget(0, opp.index);
-      const pill = document.createElement("div");
-      pill.className = `liquid-glass p-2.5 rounded-2xl flex flex-col justify-between transition relative ${
-        opp.eliminated ? "opacity-35 grayscale pointer-events-none" : ""
-      } ${isTurn ? "ring-2 ring-emerald-400" : ""} ${opp.awakened ? "awakened-glow" : ""} ${
-        GameState.selectedCardUid && canBeAttacked ? "ring-2 ring-rose-400 cursor-pointer animate-pulse" : ""
+      const isTurn = GameState.activePlayerIndex === opp.index && GameState.currentDefendingPlayerIdx === null;
+      const isBeingAttacked = GameState.currentDefendingPlayerIdx === opp.index;
+      const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
+
+      let borderClass = "";
+      if (isBeingAttacked) borderClass = "status-attacked-red";
+      else if (isTurn) borderClass = "status-turn-green";
+      else if (isImmune) borderClass = "status-immune-yellow";
+
+      const box = document.createElement("div");
+      box.className = `liquid-glass p-2.5 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
+        opp.eliminated ? "opacity-30 grayscale pointer-events-none" : ""
       }`;
 
-      pill.onclick = () => {
-        if (GameState.activePlayerIndex === 0 && GameState.selectedCardUid) {
-          Engine.handlePlayerTargetClick(opp.index);
+      box.onclick = () => {
+        if (GameState.activePlayerIndex === 0 && GameState.slotAtkCard && GameState.currentDefendingPlayerIdx === null) {
+          Engine.confirmTargetForDraggedAttack(opp.index);
         } else {
           this.inspectPlayer(opp);
         }
       };
 
-      pill.innerHTML = `
-        <div class="flex items-center justify-between text-[10px] font-bold">
-          <span class="truncate text-white/90">${opp.name} (${DB.factions[opp.faction].name.slice(0, 3)})</span>
-          ${opp.playedThisRound ? `<span class="text-[8px] px-1.5 py-0.2 bg-white/15 rounded-full text-white/60">Giocato</span>` : ""}
+      box.innerHTML = `
+        <div class="flex items-center justify-between text-xs font-black">
+          <span>${opp.name} • ${DB.factions[opp.faction].name}</span>
+          <span class="text-[11px] text-white/80">🃏 ${opp.hand.length}</span>
         </div>
-        <div class="text-[9px] text-amber-200/90 truncate my-0.5">${opp.leader.name}</div>
-        <div class="flex items-center justify-between text-xs font-black mt-1">
-          <span class="text-rose-300 flex items-center gap-0.5">♥ ${opp.hp}<span class="text-[9px] text-white/40">/${opp.maxHp}</span></span>
-          <span class="text-cyan-300 flex items-center gap-0.5">⚡ ${opp.pc}</span>
-          <span class="text-white/70 text-[10px]">🃏 ${opp.hand.length}</span>
-        </div>
-        <div class="mt-1 flex items-center justify-between text-[8px] uppercase tracking-wider">
-          <span class="${opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound() ? "text-amber-300 font-bold" : "text-white/40"}">
-            ${opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound() ? "🛡️ IMMUNE ROUND" : "Bersagliabile"}
-          </span>
-          ${opp.awakened ? `<span class="text-amber-300 font-bold">🔥 RISVEGLIO</span>` : ""}
+        <div class="text-[11px] font-bold text-amber-300 truncate">${opp.leader.name}</div>
+        <div class="flex items-center gap-3 text-xs font-black">
+          <span class="text-rose-300 flex items-center gap-1"><i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>${opp.hp}</span>
+          <span class="text-cyan-300 flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>${opp.pc}</span>
         </div>
       `;
-      oppRow.appendChild(pill);
+      oppCol.appendChild(box);
     });
 
-    // 4. Cruscotto Giocatore P1
-    document.getElementById("p1-hp").innerHTML = `${p1.hp}<span class="text-[10px] text-white/40">/${p1.maxHp}</span>`;
-    document.getElementById("p1-pc").innerHTML = `${p1.pc}<span class="text-[10px] text-white/40">/${Engine.getMaxPcCap()}</span>`;
-    document.getElementById("p1-leader-name").textContent = p1.leader.name.split(" ")[0];
-    document.getElementById("p1-leader-state").textContent = p1.awakened ? "🔥 RISVEGLIATO" : `Risveglio ≤${p1.leader.threshold}`;
-    const ldrBtn = document.getElementById("btn-leader-skill");
-    if (p1.awakened) ldrBtn.classList.add("awakened-glow");
+    // 3. Zona Centrale Superiore: Slot ATK e DIF + Nomi giocatori
+    const atkName = GameState.currentAttackingPlayerIdx !== null ? GameState.players[GameState.currentAttackingPlayerIdx].name : "";
+    const difName = GameState.currentDefendingPlayerIdx !== null ? GameState.players[GameState.currentDefendingPlayerIdx].name : "";
+    document.getElementById("atk-player-label").textContent = atkName ? `⚔️ ${atkName}` : "";
+    document.getElementById("dif-player-label").textContent = difName ? `🛡️ ${difName}` : "";
 
-    document.getElementById("p1-hand-count").textContent = p1.hand.length;
-    document.getElementById("p1-deck-count").textContent = p1.deck.length;
+    this.renderMiniSlot("slot-attacker", GameState.slotAtkCard, "Zona ATK");
+    this.renderMiniSlot("slot-defender", GameState.slotDifCard, "Zona DIF");
 
+    // 4. Pulsante Centrale: "Passa" (o "Non Difendere" se ti stanno attaccando)
     const passBtn = document.getElementById("btn-pass-turn");
-    passBtn.disabled = GameState.activePlayerIndex !== 0;
-    passBtn.classList.toggle("opacity-40", GameState.activePlayerIndex !== 0);
+    if (GameState.waitingForDefenseFromP1) {
+      passBtn.textContent = "Subisci (No Difesa)";
+      passBtn.disabled = false;
+      passBtn.classList.remove("opacity-40");
+    } else {
+      passBtn.textContent = "Passa";
+      const canPass = GameState.activePlayerIndex === 0 && GameState.currentDefendingPlayerIdx === null;
+      passBtn.disabled = !canPass;
+      passBtn.classList.toggle("opacity-40", !canPass);
+    }
 
-    // 5. Mano del Giocatore (Design unico per ogni carta)
+    // 5. Colonna Destra: Icone HP/PC + Coppa + Arena + Artwork Leader
+    document.getElementById("p1-hp").textContent = p1.hp;
+    document.getElementById("p1-pc").textContent = p1.pc;
+    document.getElementById("arena-badge").classList.toggle("hidden", !GameState.options.arenasEnabled);
+    document.getElementById("p1-leader-name").textContent = p1.leader.name;
+    document.getElementById("my-leader-art").innerHTML = DB.generateUniqueCardArt(p1.leader.name, p1.faction, "creature").replace("h-16", "h-full");
+
+    // 6. Mano in basso (Solo Immagine, PC, ATK, DIF)
     const handContainer = document.getElementById("player-hand");
     handContainer.innerHTML = "";
     p1.hand.forEach((card) => {
-      const isSelected = GameState.selectedCardUid === card.uid;
       const effectiveCost = Engine.getEffectiveCardCost(p1, card);
-      const cardEl = document.createElement("div");
-      cardEl.className = `game-card ${DB.factions[card.faction].cardClass} ${isSelected ? "selected-card ring-2 ring-white" : ""}`;
-      cardEl.onclick = () => Engine.onCardClick(card);
+      const mini = document.createElement("div");
+      mini.className = `hand-card-mini ${DB.factions[card.faction].cardClass}`;
+      mini.draggable = true;
+      mini.ondragstart = (ev) => ev.dataTransfer.setData("text/plain", card.uid);
+      mini.onclick = () => this.inspectCard(card, true);
 
-      cardEl.innerHTML = `
-        <div class="flex items-center justify-between z-10">
-          <span class="w-5 h-5 rounded-full bg-cyan-500/90 border border-white/60 text-[11px] font-black flex items-center justify-center shadow">
-            ${effectiveCost}
-          </span>
-          <span class="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full bg-black/40 text-white/80">
-            ${card.type === "creature" ? "Creatura" : "Azione"}
-          </span>
-        </div>
-
-        <div class="my-1">${card.svgArt}</div>
-
-        <div class="z-10 flex flex-col justify-between flex-1">
-          <div class="text-[10px] font-extrabold leading-tight truncate text-white drop-shadow">${card.name}</div>
-          <div class="text-[8px] text-white/80 leading-tight line-clamp-2 my-0.5">${card.effectText}</div>
-
-          ${
-            card.type === "creature"
-              ? `<div class="flex items-center justify-between text-[11px] font-black mt-auto pt-0.5 border-t border-white/15">
-                   <span class="text-rose-300">⚔️ ${card.atk}</span>
-                   <span class="text-sky-300">🛡️ ${card.dif}</span>
-                 </div>`
-              : `<div class="text-[9px] font-bold text-amber-300 text-center mt-auto pt-0.5 border-t border-white/15">
-                   ${card.shift ? "⚡ [Spostamento]" : "✨ Immediata"}
-                 </div>`
-          }
-        </div>
+      mini.innerHTML = `
+        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
+        <span class="absolute top-1 left-1 w-5 h-5 rounded-full bg-cyan-500 border border-white text-[10px] font-black flex items-center justify-center shadow">
+          ${effectiveCost}
+        </span>
+        ${
+          card.type === "creature"
+            ? `<div class="absolute bottom-0 inset-x-0 bg-black/75 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
+                 <span class="text-rose-300">⚔️${card.atk}</span>
+                 <span class="text-sky-300">🛡️${card.dif}</span>
+               </div>`
+            : `<div class="absolute bottom-0 inset-x-0 bg-black/75 py-0.5 text-center text-[9px] font-bold text-amber-300">AZIONE</div>`
+        }
       `;
-      handContainer.appendChild(cardEl);
+      handContainer.appendChild(mini);
     });
 
     lucide.createIcons();
   },
 
-  setBanner(msg) {
-    document.getElementById("table-status-banner").innerHTML = msg;
+  renderMiniSlot(slotId, card, placeholder) {
+    const el = document.getElementById(slotId);
+    if (!card) {
+      el.innerHTML = `<span>${placeholder}</span>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="relative w-full h-full rounded-xl overflow-hidden">
+        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
+        <div class="absolute bottom-0 inset-x-0 bg-black/80 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
+          <span class="text-rose-300">⚔️${card.computedAtk ?? card.atk}</span>
+          <span class="text-sky-300">🛡️${card.computedDif ?? card.dif}</span>
+        </div>
+      </div>
+    `;
   },
 
-  renderBattleSlots(attackerCard, defenderCard, resultText = "") {
-    const slotA = document.getElementById("slot-attacker");
-    const slotD = document.getElementById("slot-defender");
+  inspectCard(card, fromHand = false) {
+    if (!card) return;
+    const view = document.getElementById("modal-custom-view");
+    const actions = document.getElementById("modal-actions");
+    view.innerHTML = this.buildCustomCardHTML(card);
 
-    slotA.innerHTML = attackerCard
-      ? `<div class="p-2 text-center">
-           <div class="text-[10px] font-bold text-rose-300">${attackerCard.name}</div>
-           <div class="my-1">${attackerCard.svgArt}</div>
-           <div class="text-xs font-black">⚔️ ATK: ${attackerCard.computedAtk ?? attackerCard.atk}</div>
-         </div>`
-      : `<span>Attaccante</span>`;
+    let extraBtn = "";
+    if (fromHand && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1 && card.type === "action") {
+      extraBtn = `<button onclick="UI.closeModal(); Engine.playActionWithConfirm(0, '${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Usa Azione</button>`;
+    } else if (fromHand && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1 && card.type === "creature" && !GameState.slotAtkCard) {
+      extraBtn = `<button onclick="UI.closeModal(); Engine.placeCardInAtkSlot('${card.uid}')" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">Metti in Zona ATK</button>`;
+    } else if (fromHand && GameState.waitingForDefenseFromP1 && card.type === "creature") {
+      extraBtn = `<button onclick="UI.closeModal(); Engine.placeCardInDifSlot('${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Difendi in Zona DIF</button>`;
+    }
+    actions.innerHTML = `${extraBtn}<button onclick="UI.closeModal()" class="liquid-pill px-6 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
+  },
 
-    slotD.innerHTML = defenderCard
-      ? `<div class="p-2 text-center">
-           <div class="text-[10px] font-bold text-sky-300">${defenderCard.name}</div>
-           <div class="my-1">${defenderCard.svgArt}</div>
-           <div class="text-xs font-black">🛡️ DIF: ${defenderCard.computedDif ?? defenderCard.dif}</div>
-         </div>`
-      : `<span>Difensore</span>`;
+  inspectSlot(type) {
+    const card = type === "atk" ? GameState.slotAtkCard : GameState.slotDifCard;
+    if (card) this.inspectCard(card, false);
+  },
 
-    if (resultText) this.setBanner(resultText);
+  inspectPlayer(opp) {
+    const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="text-left space-y-2 max-w-md">
+        <div class="text-lg font-black text-amber-300">${opp.leader.name} (${opp.name})</div>
+        <div class="text-xs text-white/85"><b>Effetto Leader:</b> ${opp.leader.baseDesc}</div>
+        <div class="text-xs text-rose-300"><b>Soglia Critica:</b> ≤ ${opp.leader.threshold} PV ${opp.awakened ? "(ATTIVO)" : ""}</div>
+        <div class="text-xs text-amber-200"><b>Effetto Post-Soglia:</b> ${opp.leader.awakenedDesc}</div>
+        <div class="text-xs text-yellow-300"><b>Immunità Attive:</b> ${isImmune ? "Immune agli attacchi per questo Round" : "Nessuna immunità attiva"}</div>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
+  },
+
+  inspectMyLeader() {
+    const p1 = GameState.players[0];
+    this.inspectPlayer(p1);
+    if (p1.leader.skillType === "active" && GameState.activePlayerIndex === 0 && !p1.usedLeaderThisRound) {
+      document.getElementById("modal-actions").innerHTML = `
+        <button onclick="UI.closeModal(); Engine.activateLeaderSkill(0)" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">Attiva Potere Leader</button>
+        <button onclick="UI.closeModal()" class="liquid-pill px-6 py-2 rounded-xl text-xs font-bold">Chiudi</button>
+      `;
+    }
   },
 
   toggleObjectiveModal() {
     const p1 = GameState.players[0];
-    this.showModal(
-      "Il Tuo Obiettivo Segreto",
-      p1.objective.name,
-      `${p1.objective.desc}\n\nProgresso: ${p1.objectiveProgress || 0} • Vinci istantaneamente se soddisfi questa condizione o se resti l'ultimo sopravvissuto!`
-    );
+    this.showModal("Obiettivo Segreto", p1.objective.name, p1.objective.desc);
   },
 
   toggleArenaModal() {
     if (!GameState.currentArena) return;
-    this.showModal(
-      "Campo di Battaglia Attivo",
-      GameState.currentArena.name,
-      GameState.currentArena.desc
-    );
+    const art = DB.generateUniqueCardArt(GameState.currentArena.name, "maghi", "action").replace("h-16", "h-28");
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-2 max-w-sm">
+        <div class="text-xs font-bold uppercase tracking-widest text-cyan-300">Campo di Battaglia Attivo</div>
+        <div class="text-lg font-black">${GameState.currentArena.name}</div>
+        <div class="w-48 rounded-xl overflow-hidden">${art}</div>
+        <div class="text-xs text-white/85 mt-1">${GameState.currentArena.desc}</div>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
   },
 
-  inspectPlayer(opp) {
-    this.showModal(
-      `${opp.name} (${DB.factions[opp.faction].name})`,
-      opp.leader.name,
-      `${opp.awakened ? opp.leader.awakenedDesc : opp.leader.baseDesc}\n\nHP: ${opp.hp}/${opp.maxHp} • PC: ${opp.pc} • Carte in mano: ${opp.hand.length}`
-    );
+  showActionConfirmModal(player, card, onConfirmCallback) {
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-2">
+        <div class="text-xs font-bold uppercase tracking-widest text-amber-300">${player.name} gioca una Carta Azione</div>
+        ${this.buildCustomCardHTML(card)}
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button id="btn-confirm-action" class="liquid-btn-primary px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">Conferma</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
+    document.getElementById("btn-confirm-action").onclick = () => {
+      this.closeModal();
+      if (onConfirmCallback) onConfirmCallback();
+    };
   },
 
-  useLeaderAbility() {
-    Engine.activateLeaderSkill(0);
+  showClashSummaryModal(attacker, defender, atkCard, defCard, damage, onConfirmCallback) {
+    const atkWins = damage > 0;
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-3 w-full">
+        <div class="text-sm font-black uppercase tracking-wider ${atkWins ? "text-rose-400" : "text-sky-400"}">
+          ${atkWins ? `💥 ${attacker.name} vince lo scontro! (${damage} Danni a ${defender.name})` : `🛡️ ${defender.name} para il colpo! (0 Danni)`}
+        </div>
+        <div class="flex items-center justify-center gap-4">
+          <div class="flex flex-col items-center gap-1">
+            <span class="text-[10px] font-bold text-rose-300">⚔️ ${attacker.name}</span>
+            ${this.buildCustomCardHTML(atkCard, atkWins ? "clash-winner" : "clash-loser")}
+          </div>
+          <div class="text-lg font-black text-white/50">VS</div>
+          <div class="flex flex-col items-center gap-1">
+            <span class="text-[10px] font-bold text-sky-300">🛡️ ${defender.name}</span>
+            ${defCard ? this.buildCustomCardHTML(defCard, !atkWins ? "clash-winner" : "clash-loser") : `<div class="w-[250px] h-[226px] rounded-2xl border border-dashed border-white/20 flex items-center justify-center text-xs text-white/40">Nessuna Difesa</div>`}
+          </div>
+        </div>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button id="btn-confirm-clash" class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">Conferma</button>`;
+    document.getElementById("glass-modal").classList.remove("hidden");
+    document.getElementById("btn-confirm-clash").onclick = () => {
+      this.closeModal();
+      if (onConfirmCallback) onConfirmCallback();
+    };
   },
 
   passTurn() {
+    if (GameState.waitingForDefenseFromP1) {
+      // Se P1 clicca "Subisci (No Difesa)" mentre viene attaccato
+      GameState.waitingForDefenseFromP1 = false;
+      Engine.finishCombatResolution(GameState.currentAttackingPlayerIdx, 0, GameState.slotAtkCard, null);
+      return;
+    }
     if (GameState.activePlayerIndex === 0) {
       Engine.executePassTurn(0);
     }
   },
 
   showModal(badge, title, body) {
-    document.getElementById("modal-badge").textContent = badge;
-    document.getElementById("modal-title").textContent = title;
-    document.getElementById("modal-body").textContent = body;
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-2 max-w-sm">
+        <div class="text-[10px] font-bold uppercase tracking-widest text-cyan-300">${badge}</div>
+        <h3 class="text-xl font-black">${title}</h3>
+        <p class="text-xs text-white/80 leading-relaxed whitespace-pre-line">${body}</p>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
   },
 
@@ -401,8 +516,14 @@ const Engine = {
     GameState.activePlayerIndex = 0;
     GameState.lastAttackerIndex = null;
 
-    UI.renderBattleSlots(null, null, `Partita iniziata! Tocca a te: gioca Azioni o scegli una Creatura per attaccare.`);
+    GameState.slotAtkCard = null;
+    GameState.slotDifCard = null;
+    GameState.currentAttackingPlayerIdx = null;
+    GameState.currentDefendingPlayerIdx = null;
+    GameState.waitingForDefenseFromP1 = false;
+
     UI.renderTable();
+    UI.showToastPopup("Nuovo round: primo ad iniziare " + GameState.players[0].name, 1800);
   },
 
   getAlivePlayers() {
@@ -722,12 +843,70 @@ const Engine = {
     this.resolveCombat(0, targetIdx, card);
   },
 
-  // Risoluzione completa del Combattimento (Patch 1.4: Attaccante -> Difensore -> Danni -> Pescata Attiva)
+  // Drag & Drop sugli slot ATK e DIF
+  onSlotDrop(event, slotType) {
+    event.preventDefault();
+    const cardUid = event.dataTransfer.getData("text/plain");
+    if (slotType === "atk" && GameState.activePlayerIndex === 0 && !GameState.waitingForDefenseFromP1) {
+      this.placeCardInAtkSlot(cardUid);
+    } else if (slotType === "dif" && GameState.waitingForDefenseFromP1) {
+      this.placeCardInDifSlot(cardUid);
+    }
+  },
+
+  placeCardInAtkSlot(cardUid) {
+    const p1 = GameState.players[0];
+    const card = p1.hand.find((c) => c.uid === cardUid);
+    if (!card || card.type !== "creature") return;
+    if (p1.pc < this.getEffectiveCardCost(p1, card)) {
+      UI.showToastPopup("PC insufficienti per questa Creatura!", 1400);
+      return;
+    }
+    GameState.slotAtkCard = card;
+    GameState.currentAttackingPlayerIdx = 0;
+    UI.renderTable();
+    UI.showToastPopup("Ora clicca a sinistra l'avversario da attaccare!", 1500);
+  },
+
+  confirmTargetForDraggedAttack(targetIdx) {
+    if (!this.isValidAttackTarget(0, targetIdx) || !GameState.slotAtkCard) {
+      UI.showToastPopup("Bersaglio non valido o immune in questo Round!", 1400);
+      return;
+    }
+    this.resolveCombat(0, targetIdx, GameState.slotAtkCard);
+  },
+
+  placeCardInDifSlot(cardUid) {
+    const p1 = GameState.players[0];
+    const card = p1.hand.find((c) => c.uid === cardUid);
+    if (!card || card.type !== "creature") return;
+    if (p1.pc < this.getEffectiveCardCost(p1, card)) {
+      UI.showToastPopup("PC insufficienti per difendere con questa Creatura!", 1400);
+      return;
+    }
+    GameState.waitingForDefenseFromP1 = false;
+    GameState.slotDifCard = card;
+    UI.renderTable();
+    this.finishCombatResolution(GameState.currentAttackingPlayerIdx, 0, GameState.slotAtkCard, card);
+  },
+
+  playActionWithConfirm(playerIdx, cardUid, onAfterConfirm = null) {
+    const player = GameState.players[playerIdx];
+    const card = player.hand.find((c) => c.uid === cardUid);
+    if (!card) return;
+    this.playActionCard(player, card);
+    UI.renderTable();
+    UI.showActionConfirmModal(player, card, () => {
+      UI.renderTable();
+      if (onAfterConfirm) onAfterConfirm();
+    });
+  },
+
+  // Fase 1 Scontro: Pone la carta in Zona ATK e illumina di rosso chi deve difendersi
   resolveCombat(attackerIdx, defenderIdx, atkCard) {
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
 
-    // Pagamento Costo Attaccante
     const atkCost = this.getEffectiveCardCost(attacker, atkCard);
     attacker.pc = Math.max(0, attacker.pc - atkCost);
     attacker.hand = attacker.hand.filter((c) => c.uid !== atkCard.uid);
@@ -737,21 +916,52 @@ const Engine = {
       if (attacker.awakened) this.gainPc(attacker, 1);
     }
 
-    // Scelta Creatura Difensiva (Se il difensore ha una Creatura che può permettersi)
+    GameState.currentAttackingPlayerIdx = attackerIdx;
+    GameState.currentDefendingPlayerIdx = defenderIdx;
+    GameState.slotAtkCard = atkCard;
+    GameState.slotDifCard = null;
+    UI.renderTable();
+
+    // Se il difensore sono io (P1) e ho almeno una Creatura che posso permettermi, attendo che io trascini in Zona DIF
+    if (defenderIdx === 0) {
+      const canDefend = defender.hand.some((c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c));
+      if (canDefend) {
+        GameState.waitingForDefenseFromP1 = true;
+        UI.renderTable();
+        UI.showToastPopup("Ti attaccano! Trascina una Creatura in Zona DIF o clicca 'Subisci'", 2200);
+        return;
+      }
+    }
+
+    // Se il difensore è un avversario (o P1 non ha difese), sceglie la carta difensiva e la mostra in Zona DIF
     let defCard = null;
-    const affordableDefenders = defender.hand.filter(
-      (c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c)
-    );
-    if (affordableDefenders.length > 0) {
-      // Ordina per DIF migliore
-      affordableDefenders.sort((a, b) => (Number(b.dif) || 4) - (Number(a.dif) || 4));
-      defCard = affordableDefenders[0];
+    if (defenderIdx !== 0) {
+      const affordableDefenders = defender.hand.filter(
+        (c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c)
+      );
+      if (affordableDefenders.length > 0) {
+        affordableDefenders.sort((a, b) => (Number(b.dif) || 4) - (Number(a.dif) || 4));
+        defCard = affordableDefenders[0];
+      }
+    }
+
+    setTimeout(() => {
+      this.finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard);
+    }, 700);
+  },
+
+  // Fase 2 Scontro: Calcola i danni e apre il Tab Visivo Riassuntivo con animazione
+  finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard) {
+    const attacker = GameState.players[attackerIdx];
+    const defender = GameState.players[defenderIdx];
+
+    if (defCard) {
       const defCost = this.getEffectiveCardCost(defender, defCard);
       defender.pc = Math.max(0, defender.pc - defCost);
       defender.hand = defender.hand.filter((c) => c.uid !== defCard.uid);
+      GameState.slotDifCard = defCard;
     }
 
-    // Calcolo Valori Base (? = 2 base prima della risoluzione copia)
     let atkVal = atkCard.atk === "?" ? 2 : Number(atkCard.atk);
     let difVal = defCard ? (defCard.dif === "?" ? 2 : Number(defCard.dif)) : 0;
 
@@ -760,7 +970,6 @@ const Engine = {
       attacker.shieldSlamActive = false;
     }
 
-    // Modificatori Mutaformi e Creature
     if (atkCard.effectCode === "mut_larva" && defCard) atkVal = Math.min(4, Math.max(2, defCard.cost));
     if (defCard?.effectCode === "mut_larva") difVal = Math.min(4, Math.max(2, atkCard.cost));
     if (atkCard.effectCode === "mut_doppel" && defCard) atkVal = Math.max(3, Number(defCard.atk) || 3);
@@ -772,7 +981,6 @@ const Engine = {
     if (atkCard.effectCode === "mag_channeler") atkVal += attacker.actionsPlayedThisTurn * 2;
     if (atkCard.effectCode === "vik_berserker" && attacker.attacksTakenThisRound > 0) atkVal += 3;
 
-    // Bonus Buff Azioni e Arene
     atkVal += attacker.buffNextAttack;
     attacker.buffNextAttack = 0;
     if (defCard) {
@@ -791,7 +999,6 @@ const Engine = {
       this.drawCards(defender, 1);
     }
 
-    // Effetti Speciali Pre-Calcolo (Golia, Apprendista, Sacerdote, Bombarolo, Spettro)
     if (atkCard.effectCode === "gob_goliath") this.applyDirectDamage(attacker, 2, attacker);
     if (atkCard.effectCode === "mag_apprentice") this.gainPc(attacker, 1);
     if (defCard?.effectCode === "mag_apprentice") this.gainPc(defender, 1);
@@ -801,7 +1008,6 @@ const Engine = {
     if (atkCard.effectCode === "mag_phantom") difVal = Math.max(0, difVal - 4);
     if (defCard?.effectCode === "mag_mirage") atkVal = Math.min(3, atkVal);
 
-    // Calcolo Danni Finali (ATK - DIF)
     let damage = Math.max(0, atkVal - difVal);
     if (atkCard.effectCode === "gob_grinder") damage = Math.max(2, damage);
     if (defCard?.effectCode === "vik_huscarl") damage = Math.min(2, damage);
@@ -812,7 +1018,6 @@ const Engine = {
       }
       this.applyDirectDamage(defender, damage, attacker);
       attacker.wonClashThisRound = true;
-
       if (atkCard.effectCode === "gob_kamikaze") this.applyDirectDamage(attacker, 1, attacker);
       if (atkCard.effectCode === "gob_shaman") this.healPlayer(attacker, 2);
       if (atkCard.effectCode === "gob_raider" && defender.pc > 0) {
@@ -820,14 +1025,11 @@ const Engine = {
         this.gainPc(attacker, 1);
       }
       if (attacker.leader.id === "ldr_zarok" && attacker.awakened) this.healPlayer(attacker, 1);
-
-      // Progresso Obiettivo Furia Cieca (Goblin: 5+ danni per 2 volte)
       if (attacker.objective.id === "obj_gob_1" && damage >= 5) {
         attacker.objectiveProgress++;
         if (attacker.objectiveProgress >= 2) this.triggerVictory(attacker, "Obiettivo Furia Cieca completato!");
       }
     } else if (defCard) {
-      // Il Difensore ha bloccato a 0 danni!
       defender.wonClashThisRound = true;
       if (defCard.effectCode === "vik_shieldbearer") this.gainPc(defender, 1);
       if (defCard.effectCode === "vik_jarl" && difVal > atkVal) {
@@ -843,50 +1045,47 @@ const Engine = {
       }
     }
 
-    // Regola della Difesa Attiva (Patch 1.2): Attaccante pesca 1; Difensore pesca 1 SOLO SE ha giocato una Creatura!
     this.drawCards(attacker, 1);
-    if (defCard) {
-      this.drawCards(defender, 1);
-    }
+    if (defCard) this.drawCards(defender, 1);
 
-    // Aggiorna contatori di turno e Iniziativa Dinamica (La Patata Bollente)
     attacker.playedThisRound = true;
     defender.attacksTakenThisRound++;
     GameState.lastAttackerIndex = attackerIdx;
 
     atkCard.computedAtk = atkVal;
     if (defCard) defCard.computedDif = difVal;
+    UI.renderTable();
 
-    UI.renderBattleSlots(
-      atkCard,
-      defCard,
-      `⚔️ <b>${attacker.name}</b> (${atkVal} ATK) attacca <b>${defender.name}</b> (${
-        defCard ? `${difVal} DIF` : "Nessuna difesa"
-      }) ➔ <b>${damage} danni!</b>`
-    );
-
-    this.advanceTurn(defenderIdx);
+    // Mostra il Tab Visivo Riassuntivo dello scontro e attende Conferma per passare al turno successivo
+    UI.showClashSummaryModal(attacker, defender, atkCard, defCard, damage, () => {
+      GameState.slotAtkCard = null;
+      GameState.slotDifCard = null;
+      GameState.currentAttackingPlayerIdx = null;
+      GameState.currentDefendingPlayerIdx = null;
+      UI.renderTable();
+      this.advanceTurn(defenderIdx);
+    });
   },
 
   executePassTurn(playerIdx) {
     const player = GameState.players[playerIdx];
     player.playedThisRound = true;
 
-    // Passiva di Ragnar (Vichinghi)
     if (player.leader.id === "ldr_ragnar") {
       this.gainPc(player, player.awakened ? 3 : 2);
       this.healPlayer(player, player.awakened ? 2 : 1);
     }
-    // Penalità Arena dei Gladiatori
     if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.passPenaltyHp) {
       this.applyDirectDamage(player, 1, player);
     }
 
-    UI.setBanner(`🛡️ <b>${player.name}</b> decide di Passare il turno per risparmiare Punti Costo.`);
+    GameState.slotAtkCard = null;
+    GameState.slotDifCard = null;
+    GameState.currentAttackingPlayerIdx = null;
+    GameState.currentDefendingPlayerIdx = null;
     this.advanceTurn(null);
   },
 
-  // Gestisce l'Iniziativa Dinamica: precedenza a chi è stato attaccato se non ha ancora giocato nel Round!
   advanceTurn(attackedPlayerIdx) {
     if (GameState.gameOver) return;
 
@@ -898,7 +1097,6 @@ const Engine = {
     ) {
       nextIdx = attackedPlayerIdx;
     } else {
-      // Altrimenti il primo nell'ordine base che non ha ancora giocato
       nextIdx = GameState.baseOrder.find(
         (idx) => !GameState.players[idx].eliminated && !GameState.players[idx].playedThisRound
       );
@@ -911,15 +1109,15 @@ const Engine = {
       GameState.players[nextIdx].actionsPlayedThisTurn = 0;
       GameState.players[nextIdx].forbidAttackTarget = null;
       UI.renderTable();
+      UI.showToastPopup(`Tocca a ${GameState.players[nextIdx].name}`, 1400);
 
       if (GameState.players[nextIdx].isAI) {
-        setTimeout(() => this.runAITurn(nextIdx), 1100);
+        setTimeout(() => this.runAITurn(nextIdx), 1500);
       }
     }
   },
 
   startNewGlobalRound() {
-    // Check Obiettivi di Fine Round (Patch 1.1)
     this.getAlivePlayers().forEach((p) => {
       if (p.objective.id === "obj_mag_1" && p.hand.length >= 11 && p.hp >= 15) {
         this.triggerVictory(p, "Obiettivo Onniscienza Arcana completato!");
@@ -931,7 +1129,6 @@ const Engine = {
     if (GameState.gameOver) return;
 
     GameState.round++;
-    // Shifta l'ordine base di 1 posizione (P2, P3, P4, P1...)
     GameState.baseOrder.push(GameState.baseOrder.shift());
     GameState.lastAttackerIndex = null;
 
@@ -951,39 +1148,41 @@ const Engine = {
 
     const firstIdx = GameState.baseOrder.find((idx) => !GameState.players[idx].eliminated);
     GameState.activePlayerIndex = firstIdx;
-    UI.setBanner(`🔄 <b>Inizia il Round Globale ${GameState.round}!</b> Tutti rigenerano +${pcRegen} PC e pescano 1 carta.`);
     UI.renderTable();
+    UI.showToastPopup(`Nuovo round: primo ad iniziare ${GameState.players[firstIdx].name}`, 2000);
 
     if (GameState.players[firstIdx].isAI) {
-      setTimeout(() => this.runAITurn(firstIdx), 1200);
+      setTimeout(() => this.runAITurn(firstIdx), 2100);
     }
   },
 
-  // Turno intelligente degli avversari (quando giochi in modalità locale/test)
   runAITurn(aiIdx) {
     if (GameState.gameOver) return;
     const ai = GameState.players[aiIdx];
 
-    // 1. Gioca eventualmente una carta Azione se conveniente
+    const proceedToAttackOrPass = () => {
+      const playableCreatures = ai.hand.filter(
+        (c) => c.type === "creature" && ai.pc >= this.getEffectiveCardCost(ai, c)
+      );
+      const validTargets = [0, 1, 2, 3].filter((tIdx) => this.isValidAttackTarget(aiIdx, tIdx));
+
+      if (playableCreatures.length > 0 && validTargets.length > 0) {
+        playableCreatures.sort((a, b) => (Number(b.atk) || 4) - (Number(a.atk) || 4));
+        const targetIdx = validTargets[Math.floor(Math.random() * validTargets.length)];
+        this.resolveCombat(aiIdx, targetIdx, playableCreatures[0]);
+      } else {
+        this.executePassTurn(aiIdx);
+      }
+    };
+
+    // Se l'avversario gioca una Carta Azione, mostra il Tab Visivo e attende il tuo click su "Conferma"
     const playableActions = ai.hand.filter(
       (c) => c.type === "action" && ai.pc >= this.getEffectiveCardCost(ai, c)
     );
     if (playableActions.length > 0 && ai.pc >= 4) {
-      this.playActionCard(ai, playableActions[0]);
-    }
-
-    // 2. Cerca una Creatura e un bersaglio valido per attaccare
-    const playableCreatures = ai.hand.filter(
-      (c) => c.type === "creature" && ai.pc >= this.getEffectiveCardCost(ai, c)
-    );
-    const validTargets = [0, 1, 2, 3].filter((tIdx) => this.isValidAttackTarget(aiIdx, tIdx));
-
-    if (playableCreatures.length > 0 && validTargets.length > 0) {
-      playableCreatures.sort((a, b) => (Number(b.atk) || 4) - (Number(a.atk) || 4));
-      const targetIdx = validTargets[Math.floor(Math.random() * validTargets.length)];
-      this.resolveCombat(aiIdx, targetIdx, playableCreatures[0]);
+      this.playActionWithConfirm(aiIdx, playableActions[0].uid, proceedToAttackOrPass);
     } else {
-      this.executePassTurn(aiIdx);
+      proceedToAttackOrPass();
     }
   },
 

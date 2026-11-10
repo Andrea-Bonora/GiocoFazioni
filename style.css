@@ -194,3 +194,117 @@
   100% { transform: scale(1); opacity: 1; }
 }
 .animate-pop { animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+/* Safe area per iPhone in Orizzontale */
+.safe-area-landscape {
+  padding-left: max(12px, env(safe-area-inset-left));
+  padding-right: max(12px, env(safe-area-inset-right));
+  padding-top: 8px;
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+/* STATI LUMINOSI AVVERSARI (Colonna Sinistra) */
+@keyframes pulseGreen {
+  0%, 100% { border-color: rgba(34, 197, 94, 0.95); box-shadow: 0 0 18px rgba(34, 197, 94, 0.75), inset 0 0 10px rgba(34, 197, 94, 0.35); }
+  50% { border-color: rgba(34, 197, 94, 0.2); box-shadow: 0 0 4px rgba(34, 197, 94, 0.1); }
+}
+.status-turn-green {
+  animation: pulseGreen 1.2s infinite ease-in-out !important;
+  border-width: 2px !important;
+}
+
+@keyframes pulseRed {
+  0%, 100% { border-color: rgba(239, 68, 68, 1); box-shadow: 0 0 22px rgba(239, 68, 68, 0.9), inset 0 0 12px rgba(239, 68, 68, 0.45); }
+  50% { border-color: rgba(239, 68, 68, 0.2); box-shadow: 0 0 4px rgba(239, 68, 68, 0.1); }
+}
+.status-attacked-red {
+  animation: pulseRed 0.9s infinite ease-in-out !important;
+  border-width: 2px !important;
+}
+
+/* Bordo giallo fisso come fascio di luce (Immunità attiva) */
+.status-immune-yellow {
+  border: 2px solid #facc15 !important;
+  box-shadow: 0 0 16px #facc15, 0 0 30px rgba(250, 204, 21, 0.45), inset 0 0 10px rgba(250, 204, 21, 0.35) !important;
+}
+
+/* Slot ATK / DIF Orizzontale */
+.battle-slot-landscape {
+  width: 96px;
+  height: 112px;
+  border-radius: 16px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.25);
+  background: rgba(255, 255, 255, 0.05);
+}
+
+/* Carta Compatta nella Mano (Solo Immagine + PC, ATK, DIF) */
+.hand-card-mini {
+  width: 82px;
+  height: 104px;
+  border-radius: 14px;
+  position: relative;
+  flex-shrink: 0;
+  overflow: hidden;
+  cursor: grab;
+  transition: transform 0.2s;
+}
+.hand-card-mini:hover { transform: translateY(-8px) scale(1.05); }
+
+/* =========================================================
+   TEMPLATE CARTA PERSONALIZZATA (Usa il tuo file card_template.jpg)
+   ========================================================= */
+.custom-card-frame {
+  position: relative;
+  width: 250px;
+  height: 226px; /* Proporzione 1024x927 del tuo JPG */
+  background-image: url('img/red_card_template.jpeg');
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+/* Coordinate esatte mappate sul tuo frame rosso */
+.cc-cost {
+  position: absolute;
+  top: 10.5%; left: 8.8%;
+  width: 11.5%; height: 11.5%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 15px; font-weight: 900; color: #fff;
+}
+.cc-name {
+  position: absolute;
+  top: 6.2%; left: 24%; width: 53%; height: 7.5%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;
+}
+.cc-art {
+  position: absolute;
+  top: 14.5%; left: 9.8%; width: 80.4%; height: 47.5%;
+  overflow: hidden; border-radius: 6px; z-index: 1;
+}
+.cc-effect {
+  position: absolute;
+  top: 69.5%; left: 11%; width: 78%; height: 11.5%;
+  font-size: 9.5px; line-height: 1.2; color: #f1f5f9;
+  display: flex; align-items: center; justify-content: center; text-align: center;
+}
+.cc-atk {
+  position: absolute;
+  bottom: 5.5%; left: 19%; width: 22%; height: 7%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; color: #fca5a5;
+}
+.cc-dif {
+  position: absolute;
+  bottom: 5.5%; right: 14%; width: 22%; height: 7%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; font-weight: 900; color: #93c5fd;
+}
+
+@keyframes winnerBounce {
+  0%, 100% { transform: scale(1.08); box-shadow: 0 0 25px #22c55e; }
+  50% { transform: scale(1.14); box-shadow: 0 0 38px #4ade80; }
+}
+.clash-winner { animation: winnerBounce 1s infinite ease-in-out; border-radius: 14px; }
+.clash-loser { opacity: 0.45; filter: grayscale(70%); transform: scale(0.92); transition: all 0.4s; }
