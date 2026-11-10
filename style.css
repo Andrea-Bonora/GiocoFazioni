@@ -1,0 +1,196 @@
+/* =========================================================
+   STILE iOS LIQUID GLASS & SAFE AREA IPHONE
+   ========================================================= */
+:root {
+  --safe-top: env(safe-area-inset-top, 16px);
+  --safe-bottom: env(safe-area-inset-bottom, 16px);
+}
+
+.safe-area-padding {
+  padding-top: max(12px, var(--safe-top));
+  padding-bottom: max(12px, var(--safe-bottom));
+}
+
+/* Vetro Liquido Principale (Pannelli e Menu) */
+.liquid-glass {
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.18) 0%,
+    rgba(255, 255, 255, 0.05) 100%
+  );
+  backdrop-filter: blur(28px) saturate(190%);
+  -webkit-backdrop-filter: blur(28px) saturate(190%);
+  border-radius: 26px;
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  box-shadow:
+    0 16px 36px -4px rgba(0, 0, 0, 0.45),
+    inset 0 1px 1px 0 rgba(255, 255, 255, 0.45),
+    inset 0 -1px 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+/* Pillole secondarie in vetro */
+.liquid-pill {
+  background: rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(16px) saturate(160%);
+  -webkit-backdrop-filter: blur(16px) saturate(160%);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.3);
+}
+
+.liquid-input {
+  background: rgba(0, 0, 0, 0.28);
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.4);
+}
+
+/* Pulsanti iOS Liquid */
+.liquid-btn-primary {
+  background: linear-gradient(135deg, rgba(56, 189, 248, 0.85), rgba(37, 99, 235, 0.85));
+  border: 1px solid rgba(186, 230, 253, 0.5);
+  box-shadow: 0 8px 20px rgba(37, 99, 235, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.5);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.liquid-btn-gold {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.9), rgba(217, 119, 6, 0.9));
+  border: 1px solid rgba(253, 230, 138, 0.6);
+  box-shadow: 0 10px 24px rgba(217, 119, 6, 0.4), inset 0 1px 1px rgba(255, 255, 255, 0.6);
+  transition: transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+.liquid-btn-secondary {
+  background: rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.28);
+}
+
+.liquid-btn-primary:active,
+.liquid-btn-gold:active,
+.liquid-btn-secondary:active {
+  transform: scale(0.95);
+}
+
+/* Switch nativo stile iOS */
+.ios-switch {
+  appearance: none;
+  width: 46px;
+  height: 26px;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+  position: relative;
+  cursor: pointer;
+  transition: background 0.25s;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+}
+
+.ios-switch::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 20px;
+  height: 20px;
+  background: white;
+  border-radius: 50%;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.3);
+}
+
+.ios-switch:checked {
+  background: #34d399;
+}
+
+.ios-switch:checked::after {
+  transform: translateX(20px);
+}
+
+/* =========================================================
+   SFONDI DINAMICI CAMPI DI BATTAGLIA (ARENE)
+   ========================================================= */
+.ambient-orb {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(65px);
+  opacity: 0.55;
+  animation: floatOrb 12s infinite alternate ease-in-out;
+}
+.orb-1 { width: 260px; height: 260px; top: -40px; left: -50px; background: #1d4ed8; }
+.orb-2 { width: 220px; height: 220px; bottom: 8%; right: -40px; background: #7e22ce; animation-delay: -4s; }
+.orb-3 { width: 180px; height: 180px; top: 42%; left: 25%; background: #0f766e; animation-delay: -8s; }
+
+@keyframes floatOrb {
+  0% { transform: translate(0, 0) scale(1); }
+  100% { transform: translate(25px, -30px) scale(1.15); }
+}
+
+/* =========================================================
+   DESIGN DELLE CARTE E CORNICI DI FAZIONE
+   ========================================================= */
+.game-card {
+  width: 112px;
+  height: 156px;
+  border-radius: 18px;
+  position: relative;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 7px;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s;
+  cursor: pointer;
+  overflow: hidden;
+}
+
+.game-card:hover, .game-card.selected-card {
+  transform: translateY(-14px) scale(1.06);
+  z-index: 30;
+}
+
+/* Cornici per Fazione */
+.card-goblin {
+  background: linear-gradient(160deg, rgba(153, 27, 27, 0.55), rgba(69, 10, 10, 0.85));
+  border: 1.5px solid rgba(248, 113, 113, 0.6);
+  box-shadow: 0 8px 20px rgba(153, 27, 27, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+.card-vichinghi {
+  background: linear-gradient(160deg, rgba(30, 64, 175, 0.55), rgba(15, 23, 42, 0.88));
+  border: 1.5px solid rgba(96, 165, 250, 0.6);
+  box-shadow: 0 8px 20px rgba(30, 64, 175, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+.card-maghi {
+  background: linear-gradient(160deg, rgba(107, 33, 168, 0.55), rgba(30, 10, 60, 0.88));
+  border: 1.5px solid rgba(192, 132, 252, 0.6);
+  box-shadow: 0 8px 20px rgba(107, 33, 168, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+.card-mutaformi {
+  background: linear-gradient(160deg, rgba(180, 83, 9, 0.55), rgba(45, 20, 5, 0.88));
+  border: 1.5px solid rgba(251, 191, 36, 0.6);
+  box-shadow: 0 8px 20px rgba(180, 83, 9, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+}
+
+/* Slot Combattimento al centro del tavolo */
+.battle-slot {
+  width: 116px;
+  height: 160px;
+  border-radius: 20px;
+  border: 1.5px dashed rgba(255, 255, 255, 0.22);
+  background: rgba(255, 255, 255, 0.04);
+}
+
+/* Aura Risveglio Leader */
+.awakened-glow {
+  border-color: #fbbf24 !important;
+  box-shadow: 0 0 18px rgba(251, 191, 36, 0.65), inset 0 0 8px rgba(251, 191, 36, 0.4) !important;
+}
+
+.no-scrollbar::-webkit-scrollbar { display: none; }
+.no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+@keyframes popIn {
+  0% { transform: scale(0.88); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+.animate-pop { animation: popIn 0.2s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
