@@ -614,10 +614,10 @@ const DB = {
     const polyPoints = `${15 + (Math.abs(hash) % 20)},75 50,${12 + (Math.abs(hash >> 4) % 25)} ${85 - (Math.abs(hash >> 2) % 20)},75`;
 
     const palette = {
-      goblin: ["#f87171", "#ea580c", "#fef08a"],
-      vichinghi: ["#38bdf8", "#818cf8", "#e0f2fe"],
-      maghi: ["#c084fc", "#ec4899", "#f3e8ff"],
-      mutaformi: ["#fbbf24", "#34d399", "#fef3c7"]
+      goblin: ["#4ade80", "#16a34a", "#dcfce7"],     // Verde
+      vichinghi: ["#38bdf8", "#0284c7", "#e0f2fe"],  // Azzurro
+      maghi: ["#c084fc", "#9333ea", "#f3e8ff"],      // Viola
+      mutaformi: ["#f87171", "#dc2626", "#fee2e2"]   // Rosso
     }[factionId] || ["#ffffff", "#94a3b8", "#e2e8f0"];
 
     return `

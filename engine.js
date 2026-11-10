@@ -4,6 +4,7 @@
 
 const GameState = {
   roomCode: "SOLO",
+  playerName: "Giocatore 1",
   options: {
     arenasEnabled: true,
     awakeningEnabled: true
@@ -48,17 +49,6 @@ const UI = {
     this.goToSetup();
   },
 
-  goToSetup() {
-    GameState.options.arenasEnabled = document.getElementById("toggle-arenas").checked;
-    GameState.options.awakeningEnabled = document.getElementById("toggle-awakening").checked;
-
-    document.getElementById("screen-menu").classList.add("hidden");
-    const setup = document.getElementById("screen-setup");
-    setup.classList.remove("hidden");
-    setup.classList.add("flex");
-    lucide.createIcons();
-  },
-
   backToMenu() {
     document.getElementById("screen-setup").classList.add("hidden");
     document.getElementById("screen-setup").classList.remove("flex");
@@ -84,27 +74,63 @@ const UI = {
     lucide.createIcons();
   },
 
-  selectFaction(factionId, btnEl) {
+  goToSetup() {
+    const nameInput = document.getElementById("player-name-input")?.value.trim();
+    GameState.playerName = nameInput || "Giocatore 1";
+    GameState.options.arenasEnabled = document.getElementById("toggle-arenas").checked;
+    GameState.options.awakeningEnabled = document.getElementById("toggle-awakening").checked;
+
+    // Ripristina la vista di setup iniziale
+    document.getElementById("btn-setup-back").classList.remove("hidden");
+    document.getElementById("setup-header-title").textContent = "Scegli la tua Fazione";
+    document.getElementById("faction-grid").classList.remove("hidden");
+    document.getElementById("objective-preview-box").classList.add("hidden");
+    document.getElementById("leader-selection-box").classList.add("hidden");
+    document.getElementById("leader-selection-box").classList.remove("flex");
+
+    document.getElementById("screen-menu").classList.add("hidden");
+    const setup = document.getElementById("screen-setup");
+    setup.classList.remove("hidden");
+    setup.classList.add("flex");
+    this.renderFactionSelection();
+  },
+
+  selectFaction(factionId) {
     GameState.selectedFaction = factionId;
     GameState.selectedLeader = null;
-
-    // Evidenzia fazione scelta
-    Array.from(document.getElementById("faction-grid").children).forEach((el) => {
-      el.classList.remove("ring-2", "ring-cyan-400", "bg-white/20");
-    });
-    btnEl.classList.add("ring-2", "ring-cyan-400", "bg-white/20");
-
-    // Pesca 1 Carta Obiettivo casuale dal pool della Fazione (PRIMA di scegliere il Leader!)
     const fac = DB.factions[factionId];
-    const randomObj = fac.objectives[Math.floor(Math.random() * fac.objectives.length)];
-    GameState.drawnObjective = randomObj;
 
+    // 1. Nasconde le altre fazioni e il pulsante indietro (scelta irreversibile!)
+    document.getElementById("faction-grid").classList.add("hidden");
+    document.getElementById("btn-setup-back").classList.add("hidden");
+    document.getElementById("setup-header-title").textContent = `Fazione: ${fac.name}`;
+
+    // 2. Avvia l'animazione di estrazione dell'Obiettivo Segreto
     const objBox = document.getElementById("objective-preview-box");
+    const objTitle = document.getElementById("setup-objective-title");
+    const objDesc = document.getElementById("setup-objective-desc");
+    const statusLbl = document.getElementById("objective-status-label");
     objBox.classList.remove("hidden");
-    document.getElementById("setup-objective-title").textContent = randomObj.name;
-    document.getElementById("setup-objective-desc").textContent = randomObj.desc;
+    objDesc.textContent = "";
 
-    // Mostra i 3 Leader della fazione
+    let ticks = 0;
+    const rollInterval = setInterval(() => {
+      const tempObj = fac.objectives[ticks % fac.objectives.length];
+      objTitle.textContent = tempObj.name;
+      ticks++;
+      if (ticks >= 10) {
+        clearInterval(rollInterval);
+        const finalObj = fac.objectives[Math.floor(Math.random() * fac.objectives.length)];
+        GameState.drawnObjective = finalObj;
+        statusLbl.textContent = "Obiettivo Segreto Assegnato";
+        objTitle.textContent = finalObj.name;
+        objDesc.textContent = finalObj.desc;
+        this.revealLeaderChoices(fac);
+      }
+    }, 90);
+  },
+
+  revealLeaderChoices(fac) {
     const leaderBox = document.getElementById("leader-selection-box");
     const leaderList = document.getElementById("leader-list");
     leaderBox.classList.remove("hidden");
@@ -112,25 +138,27 @@ const UI = {
     leaderList.innerHTML = "";
 
     fac.leaders.forEach((ldr) => {
+      const leaderArt = DB.generateUniqueCardArt(ldr.name, fac.id, "creature").replace("h-16", "h-full");
       const lBtn = document.createElement("button");
-      lBtn.className = "liquid-pill p-3 rounded-2xl text-left transition active:scale-98 flex flex-col gap-1";
+      lBtn.className = `liquid-pill p-2.5 rounded-2xl text-left transition active:scale-98 flex items-center gap-3 ${fac.cardClass}`;
       lBtn.onclick = () => this.selectLeader(ldr, lBtn);
       lBtn.innerHTML = `
-        <div class="flex items-center justify-between">
-          <span class="text-xs font-bold text-amber-300">${ldr.name}</span>
-          <span class="text-[10px] px-2 py-0.5 rounded-full bg-rose-500/30 border border-rose-400/40 text-rose-200 font-semibold">
-            Risveglio ≤ ${ldr.threshold} HP
-          </span>
+        <div class="w-16 h-16 rounded-xl overflow-hidden shrink-0 border border-white/25 shadow-md">
+          ${leaderArt}
         </div>
-        <div class="text-[11px] text-white/80 leading-snug">${ldr.baseDesc}</div>
-        ${GameState.options.awakeningEnabled ? `<div class="text-[10px] text-amber-200/80 italic mt-0.5">${ldr.awakenedDesc}</div>` : ""}
+        <div class="flex flex-col flex-1">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-black text-amber-300">${ldr.name}</span>
+            <span class="text-[10px] px-2 py-0.5 rounded-full bg-black/40 border border-white/20 text-rose-200 font-bold">
+              ≤ ${ldr.threshold} ♥
+            </span>
+          </div>
+          <div class="text-[11px] text-white/90 leading-snug mt-0.5">${ldr.baseDesc}</div>
+          ${GameState.options.awakeningEnabled ? `<div class="text-[10px] text-amber-200/90 italic mt-0.5">${ldr.awakenedDesc}</div>` : ""}
+        </div>
       `;
       leaderList.appendChild(lBtn);
     });
-
-    const enterBtn = document.getElementById("btn-enter-battle");
-    enterBtn.disabled = true;
-    enterBtn.classList.add("opacity-40", "pointer-events-none");
   },
 
   selectLeader(leaderObj, btnEl) {
@@ -155,18 +183,50 @@ const UI = {
     Engine.setupMatch();
   },
 
-  // Costruisce la carta col tuo template grafico card_template.jpg
+  // Nuovo Layout Dettaglio Carta (Sinistra: Nome + Artwork | Destra: Costo, ATK+Spada, DIF+Scudo, Effetto)
   buildCustomCardHTML(card, extraClass = "") {
     if (!card) return "";
     const isCreature = card.type === "creature";
+    const factionClass = DB.factions[card.faction]?.cardClass || "";
+    const artSvg = card.svgArt.replace("h-16", "h-32");
+
     return `
-      <div class="custom-card-frame ${extraClass}">
-        <div class="cc-cost">${card.cost}</div>
-        <div class="cc-name truncate px-1">${card.name}</div>
-        <div class="cc-art">${card.svgArt.replace('h-16', 'h-full')}</div>
-        <div class="cc-effect px-1">${card.effectText}</div>
-        <div class="cc-atk">${isCreature ? (card.computedAtk ?? card.atk) : "—"}</div>
-        <div class="cc-dif">${isCreature ? (card.computedDif ?? card.dif) : "—"}</div>
+      <div class="liquid-glass ${factionClass} ${extraClass} p-3.5 rounded-2xl w-full max-w-[360px] grid grid-cols-12 gap-3 text-left items-center">
+        <!-- Colonna Sinistra (5 col): Nome Carta sopra e Artwork sotto -->
+        <div class="col-span-5 flex flex-col gap-1.5">
+          <div class="text-xs font-black text-white uppercase tracking-wide leading-tight text-center bg-black/40 py-1 px-1.5 rounded-lg border border-white/15">
+            ${card.name}
+          </div>
+          <div class="w-full h-32 rounded-xl overflow-hidden border border-white/20 shadow-inner">
+            ${artSvg}
+          </div>
+        </div>
+
+        <!-- Colonna Destra (7 col): Costo, Attacco + Spada, Difesa + Scudo, sotto Effetto -->
+        <div class="col-span-7 flex flex-col justify-between h-full gap-1.5">
+          <div class="flex flex-col gap-1 bg-black/35 p-2 rounded-xl border border-white/10">
+            <div class="flex items-center justify-between text-xs font-black text-cyan-300">
+              <span class="flex items-center gap-1"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i> Costo</span>
+              <span>${card.cost}</span>
+            </div>
+            ${
+              isCreature
+                ? `<div class="flex items-center justify-between text-xs font-black text-rose-300">
+                     <span class="flex items-center gap-1"><i data-lucide="sword" class="w-3.5 h-3.5"></i> Attacco</span>
+                     <span>${card.computedAtk ?? card.atk}</span>
+                   </div>
+                   <div class="flex items-center justify-between text-xs font-black text-sky-300">
+                     <span class="flex items-center gap-1"><i data-lucide="shield" class="w-3.5 h-3.5"></i> Difesa</span>
+                     <span>${card.computedDif ?? card.dif}</span>
+                   </div>`
+                : `<div class="text-[10px] font-bold text-amber-300 uppercase tracking-wider text-center py-1">Carta Azione</div>`
+            }
+          </div>
+
+          <div class="bg-black/45 p-2 rounded-xl border border-white/15 flex-1 flex items-center">
+            <p class="text-[10px] text-white/90 leading-snug">${card.effectText}</p>
+          </div>
+        </div>
       </div>
     `;
   },
@@ -187,6 +247,10 @@ const UI = {
   },
 
   renderTable() {
+
+    const attackOverlay = document.getElementById("under-attack-overlay");
+    if (attackOverlay) attackOverlay.classList.toggle("hidden", !GameState.waitingForDefenseFromP1);
+
     const p1 = GameState.players[0];
 
     // 1. Sfondo Arena
@@ -211,7 +275,7 @@ const UI = {
       else if (isImmune) borderClass = "status-immune-yellow";
 
       const box = document.createElement("div");
-      box.className = `liquid-glass p-2.5 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
+      box.className = `liquid-glass panel-${opp.faction} p-2.5 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
         opp.eliminated ? "opacity-30 grayscale pointer-events-none" : ""
       }`;
 
@@ -330,6 +394,7 @@ const UI = {
     }
     actions.innerHTML = `${extraBtn}<button onclick="UI.closeModal()" class="liquid-pill px-6 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
   },
 
   inspectSlot(type) {
@@ -339,18 +404,55 @@ const UI = {
 
   inspectPlayer(opp) {
     const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
+    const leaderArt = DB.generateUniqueCardArt(opp.leader.name, opp.faction, "creature").replace("h-16", "h-28");
+    const factionClass = DB.factions[opp.faction].cardClass;
     const view = document.getElementById("modal-custom-view");
+
     view.innerHTML = `
-      <div class="text-left space-y-2 max-w-md">
-        <div class="text-lg font-black text-amber-300">${opp.leader.name} (${opp.name})</div>
-        <div class="text-xs text-white/85"><b>Effetto Leader:</b> ${opp.leader.baseDesc}</div>
-        <div class="text-xs text-rose-300"><b>Soglia Critica:</b> ≤ ${opp.leader.threshold} PV ${opp.awakened ? "(ATTIVO)" : ""}</div>
-        <div class="text-xs text-amber-200"><b>Effetto Post-Soglia:</b> ${opp.leader.awakenedDesc}</div>
-        <div class="text-xs text-yellow-300"><b>Immunità Attive:</b> ${isImmune ? "Immune agli attacchi per questo Round" : "Nessuna immunità attiva"}</div>
+      <div class="liquid-glass ${factionClass} p-4 rounded-2xl grid grid-cols-12 gap-4 items-center text-left max-w-lg w-full">
+        <div class="col-span-4 flex flex-col items-center gap-1.5">
+          <div class="w-full h-28 rounded-xl overflow-hidden border border-white/25 shadow-lg">${leaderArt}</div>
+          <span class="text-[10px] font-bold uppercase tracking-widest text-white/80">${DB.factions[opp.faction].name}</span>
+        </div>
+        <div class="col-span-8 space-y-1.5">
+          <div class="text-base font-black text-amber-300">${opp.leader.name} (${opp.name})</div>
+          <div class="text-xs text-white/90"><b>Effetto Leader:</b> ${opp.leader.baseDesc}</div>
+          <div class="text-xs text-rose-300"><b>Soglia Critica:</b> ≤ ${opp.leader.threshold} ♥ ${opp.awakened ? "(ATTIVO)" : ""}</div>
+          <div class="text-xs text-amber-200"><b>Post-Soglia:</b> ${opp.leader.awakenedDesc}</div>
+          <div class="text-xs text-yellow-300"><b>Immunità:</b> ${isImmune ? "Immune agli attacchi in questo Round" : "Nessuna"}</div>
+        </div>
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+  },
+
+  // Modale simbolico di Nuovo Round con richiesta di Conferma per tutti
+  showNewRoundModal(roundNumber, firstPlayerName, onConfirmCallback) {
+    const view = document.getElementById("modal-custom-view");
+    view.innerHTML = `
+      <div class="flex flex-col items-center gap-3 py-3">
+        <div class="w-20 h-20 rounded-full liquid-pill border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-2xl round-emblem-anim">
+          <i data-lucide="swords" class="w-10 h-10"></i>
+        </div>
+        <div class="text-xs font-bold uppercase tracking-widest text-cyan-300">Fine del Round Precedente</div>
+        <h3 class="text-2xl font-black tracking-wide text-white">NUOVO ROUND ${roundNumber}</h3>
+        <p class="text-sm text-amber-200 font-bold">Primo ad iniziare: ${firstPlayerName}</p>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `
+      <button id="btn-confirm-round" class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">
+        Conferma
+      </button>
+    `;
+    document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+
+    document.getElementById("btn-confirm-round").onclick = () => {
+      this.closeModal();
+      if (onConfirmCallback) onConfirmCallback();
+    };
   },
 
   inspectMyLeader() {
@@ -428,6 +530,7 @@ const UI = {
       this.closeModal();
       if (onConfirmCallback) onConfirmCallback();
     };
+    lucide.createIcons();
   },
 
   passTurn() {
@@ -476,10 +579,11 @@ const Engine = {
       const objective = idx === 0 ? GameState.drawnObjective : fac.objectives[Math.floor(Math.random() * fac.objectives.length)];
       const deck = DB.buildDeckForFaction(facId);
       const hand = deck.splice(0, 5); // 5 carte iniziali
+      const defaultNames = [GameState.playerName || "P1", " P2", "P3", "P4"];
 
       return {
         index: idx,
-        name: idx === 0 ? "Tu (P1)" : `P${idx + 1}`,
+        name: defaultNames[idx],
         isAI: idx !== 0,
         faction: facId,
         leader: leader,
@@ -1149,11 +1253,11 @@ const Engine = {
     const firstIdx = GameState.baseOrder.find((idx) => !GameState.players[idx].eliminated);
     GameState.activePlayerIndex = firstIdx;
     UI.renderTable();
-    UI.showToastPopup(`Nuovo round: primo ad iniziare ${GameState.players[firstIdx].name}`, 2000);
-
-    if (GameState.players[firstIdx].isAI) {
-      setTimeout(() => this.runAITurn(firstIdx), 2100);
-    }
+    UI.showNewRoundModal(GameState.round, GameState.players[firstIdx].name, () => {
+      if (GameState.players[firstIdx].isAI) {
+        setTimeout(() => this.runAITurn(firstIdx), 900);
+      }
+    });
   },
 
   runAITurn(aiIdx) {

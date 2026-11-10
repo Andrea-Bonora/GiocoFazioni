@@ -146,29 +146,33 @@
   z-index: 30;
 }
 
-/* Cornici per Fazione */
-.card-goblin {
-  background: linear-gradient(160deg, rgba(153, 27, 27, 0.55), rgba(69, 10, 10, 0.85));
-  border: 1.5px solid rgba(248, 113, 113, 0.6);
-  box-shadow: 0 8px 20px rgba(153, 27, 27, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+/* CARTE E RIQUADRI GIOCATORE PER FAZIONE */
+/* Goblin = VERDE */
+.card-goblin, .panel-goblin {
+  background: linear-gradient(155deg, rgba(22, 163, 74, 0.50), rgba(5, 46, 22, 0.88));
+  border: 1.5px solid rgba(74, 222, 128, 0.7);
+  box-shadow: 0 6px 18px rgba(22, 163, 74, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
-.card-vichinghi {
-  background: linear-gradient(160deg, rgba(30, 64, 175, 0.55), rgba(15, 23, 42, 0.88));
-  border: 1.5px solid rgba(96, 165, 250, 0.6);
-  box-shadow: 0 8px 20px rgba(30, 64, 175, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+/* Vichinghi = AZZURRO */
+.card-vichinghi, .panel-vichinghi {
+  background: linear-gradient(155deg, rgba(14, 165, 233, 0.50), rgba(8, 47, 73, 0.88));
+  border: 1.5px solid rgba(56, 189, 248, 0.7);
+  box-shadow: 0 6px 18px rgba(14, 165, 233, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
-.card-maghi {
-  background: linear-gradient(160deg, rgba(107, 33, 168, 0.55), rgba(30, 10, 60, 0.88));
-  border: 1.5px solid rgba(192, 132, 252, 0.6);
-  box-shadow: 0 8px 20px rgba(107, 33, 168, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+/* Maghi = VIOLA */
+.card-maghi, .panel-maghi {
+  background: linear-gradient(155deg, rgba(147, 51, 234, 0.50), rgba(46, 16, 101, 0.88));
+  border: 1.5px solid rgba(192, 132, 252, 0.7);
+  box-shadow: 0 6px 18px rgba(147, 51, 234, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
-.card-mutaformi {
-  background: linear-gradient(160deg, rgba(180, 83, 9, 0.55), rgba(45, 20, 5, 0.88));
-  border: 1.5px solid rgba(251, 191, 36, 0.6);
-  box-shadow: 0 8px 20px rgba(180, 83, 9, 0.35), inset 0 1px 1px rgba(255, 255, 255, 0.35);
+/* Mutaformi = ROSSO */
+.card-mutaformi, .panel-mutaformi {
+  background: linear-gradient(155deg, rgba(220, 38, 38, 0.50), rgba(69, 10, 10, 0.88));
+  border: 1.5px solid rgba(248, 113, 113, 0.7);
+  box-shadow: 0 6px 18px rgba(220, 38, 38, 0.3), inset 0 1px 1px rgba(255, 255, 255, 0.35);
 }
 
 /* Slot Combattimento al centro del tavolo */
@@ -250,61 +254,28 @@
 }
 .hand-card-mini:hover { transform: translateY(-8px) scale(1.05); }
 
-/* =========================================================
-   TEMPLATE CARTA PERSONALIZZATA (Usa il tuo file card_template.jpg)
-   ========================================================= */
-.custom-card-frame {
-  position: relative;
-  width: 250px;
-  height: 226px; /* Proporzione 1024x927 del tuo JPG */
-  background-image: url('img/red_card_template.jpeg');
-  background-size: 100% 100%;
-  background-repeat: no-repeat;
-  user-select: none;
-  flex-shrink: 0;
-}
-
-/* Coordinate esatte mappate sul tuo frame rosso */
-.cc-cost {
-  position: absolute;
-  top: 10.5%; left: 8.8%;
-  width: 11.5%; height: 11.5%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 15px; font-weight: 900; color: #fff;
-}
-.cc-name {
-  position: absolute;
-  top: 6.2%; left: 24%; width: 53%; height: 7.5%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 11px; font-weight: 800; color: #fff; text-transform: uppercase; letter-spacing: 0.5px;
-}
-.cc-art {
-  position: absolute;
-  top: 14.5%; left: 9.8%; width: 80.4%; height: 47.5%;
-  overflow: hidden; border-radius: 6px; z-index: 1;
-}
-.cc-effect {
-  position: absolute;
-  top: 69.5%; left: 11%; width: 78%; height: 11.5%;
-  font-size: 9.5px; line-height: 1.2; color: #f1f5f9;
-  display: flex; align-items: center; justify-content: center; text-align: center;
-}
-.cc-atk {
-  position: absolute;
-  bottom: 5.5%; left: 19%; width: 22%; height: 7%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 900; color: #fca5a5;
-}
-.cc-dif {
-  position: absolute;
-  bottom: 5.5%; right: 14%; width: 22%; height: 7%;
-  display: flex; align-items: center; justify-content: center;
-  font-size: 13px; font-weight: 900; color: #93c5fd;
-}
-
 @keyframes winnerBounce {
   0%, 100% { transform: scale(1.08); box-shadow: 0 0 25px #22c55e; }
   50% { transform: scale(1.14); box-shadow: 0 0 38px #4ade80; }
 }
 .clash-winner { animation: winnerBounce 1s infinite ease-in-out; border-radius: 14px; }
 .clash-loser { opacity: 0.45; filter: grayscale(70%); transform: scale(0.92); transition: all 0.4s; }
+
+/* Pulsazione rossa tenue su tutto lo schermo quando sei sotto attacco */
+@keyframes screenRedPulse {
+  0%, 100% { box-shadow: inset 0 0 85px rgba(239, 68, 68, 0.55); background: rgba(239, 68, 68, 0.08); }
+  50% { box-shadow: inset 0 0 25px rgba(239, 68, 68, 0.15); background: rgba(239, 68, 68, 0.01); }
+}
+.under-attack-vignette {
+  animation: screenRedPulse 1.3s infinite ease-in-out;
+}
+
+/* Animazione simbolica per l'icona del Nuovo Round */
+@keyframes roundEmblemSpin {
+  0% { transform: scale(0.4) rotate(-90deg); opacity: 0; }
+  70% { transform: scale(1.15) rotate(10deg); opacity: 1; }
+  100% { transform: scale(1) rotate(0deg); opacity: 1; }
+}
+.round-emblem-anim {
+  animation: roundEmblemSpin 0.65s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+}
