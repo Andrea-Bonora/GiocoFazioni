@@ -326,6 +326,17 @@
     <!-- OVERLAY PULSAZIONE ROSSA TENUE QUANDO SEI ATTACCATO E DEVI DIFENDERTI -->
     <div id="under-attack-overlay" class="hidden fixed inset-0 pointer-events-none z-30 under-attack-vignette"></div>
 
+    <!-- OVERLAY OBBLIGO SCHERMO ORIZZONTALE (Compare automaticamente se l'iPhone è in verticale) -->
+    <div id="portrait-warning-overlay" class="fixed inset-0 z-[999] bg-[#070a12]/95 backdrop-blur-xl hidden flex-col items-center justify-center p-6 text-center">
+      <div class="w-16 h-16 rounded-2xl liquid-pill flex items-center justify-center text-amber-300 mb-4 animate-bounce">
+        <i data-lucide="smartphone" class="w-8 h-8 rotate-90"></i>
+      </div>
+      <h2 class="text-xl font-black uppercase tracking-wider text-white">Ruota il Dispositivo</h2>
+      <p class="text-xs text-white/70 mt-2 max-w-xs leading-relaxed">
+        FAZIONI è progettato per essere giocato esclusivamente in modalità orizzontale (Landscape).
+      </p>
+    </div>
+    
     </main>
 
   <!-- Script Modulari (Che genereremo nelle Parti 2 e 3) -->

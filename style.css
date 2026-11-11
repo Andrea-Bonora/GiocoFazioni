@@ -364,3 +364,17 @@
 .reading-progress-fill {
   transition: width 0.1s linear;
 }
+
+/* Mostra l'avviso di blocco se il telefono è tenuto in verticale */
+@media screen and (orientation: portrait) {
+  #portrait-warning-overlay {
+    display: flex !important;
+  }
+}
+
+/* Versione più piccola delle carte per il riepilogo dello scontro */
+.clash-card-compact {
+  max-width: 265px !important;
+  padding: 8px !important;
+  transform: scale(0.92);
+}

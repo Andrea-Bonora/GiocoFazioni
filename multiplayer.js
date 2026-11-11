@@ -329,6 +329,7 @@ const Multiplayer = {
       if (card) {
         GameState.slotAtkCard = card;
         GameState.currentAttackingPlayerIdx = slotIdx;
+        UI.setPersistentStatus("⚔️ <b>" + p.name + "</b> sta decidendo chi attaccare...");
         UI.renderTable();
       }
     } else if (act.kind === "DECLARE_ATTACK") {

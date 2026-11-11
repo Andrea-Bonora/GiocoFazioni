@@ -52,9 +52,33 @@ const GameState = {
    1. CONTROLLER INTERFACCIA UTENTE (UI & NAVIGAZIONE SCHERMATE)
    ============================================================================ */
 const UI = {
+  wakeLockSentinel: null,
+
   init() {
     lucide.createIcons();
     this.renderFactionSelection();
+    this.enableScreenLockAndWake();
+  },
+
+  enableScreenLockAndWake() {
+    const requestWake = async () => {
+      try {
+        if ("wakeLock" in navigator && !this.wakeLockSentinel) {
+          this.wakeLockSentinel = await navigator.wakeLock.request("screen");
+          this.wakeLockSentinel.addEventListener("release", () => {
+            this.wakeLockSentinel = null;
+          });
+        }
+        if (screen.orientation && screen.orientation.lock) {
+          await screen.orientation.lock("landscape").catch(() => {});
+        }
+      } catch (e) {}
+    };
+    document.addEventListener("click", requestWake, { passive: true });
+    document.addEventListener("touchstart", requestWake, { passive: true });
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "visible") requestWake();
+    });
   },
 
   // Valida che lo username sia stato inserito (obbligatorio sia in locale che online!)
@@ -169,8 +193,18 @@ const UI = {
       : `<span class="text-white/40">Difensore</span>`;
   },
 
+  clearModalSwipeListeners() {
+    const view = document.getElementById("modal-custom-view");
+    if (view) {
+      view.ontouchstart = null;
+      view.ontouchend = null;
+    }
+    GameState.inspectedHandIndex = null;
+  },
+
   // Modale con Pausa Fissa + Barra di Caricamento Visiva RADDOPPIATA (10.000ms = 10 secondi) + Salta Condiviso
   showTimedSummaryModal(summaryHTML, durationMs = 10000, onFinishCallback = null) {
+    this.clearModalSwipeListeners();
     if (GameState.readingTimerInterval) clearInterval(GameState.readingTimerInterval);
     GameState.skipVotes = [];
 
@@ -504,7 +538,16 @@ const UI = {
     if (attackOverlay) attackOverlay.classList.toggle("hidden", !GameState.waitingForDefenseFromP1);
 
     const bar = document.getElementById("persistent-status-bar");
-    if (bar && GameState.persistentStatusText) bar.innerHTML = GameState.persistentStatusText;
+    if (bar) {
+      if (GameState.slotAtkCard && GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx === null) {
+        const atkPlayer = GameState.players[GameState.currentAttackingPlayerIdx];
+        bar.innerHTML = GameState.currentAttackingPlayerIdx === me.index
+          ? `🎯 Scegli a sinistra l'avversario illuminato da attaccare!`
+          : `⚔️ <b>${atkPlayer.name}</b> sta decidendo chi attaccare...`;
+      } else if (GameState.persistentStatusText) {
+        bar.innerHTML = GameState.persistentStatusText;
+      }
+    }
 
     // 1. Colonna Sinistra: Gli altri 3 giocatori (Illumina i bersagli validi anche quando scegli chi attaccare!)
     const oppCol = document.getElementById("opponents-col");
@@ -703,6 +746,7 @@ const UI = {
   },
 
   inspectPlayer(opp) {
+    this.clearModalSwipeListeners();
     const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
     const leaderArt = DB.generateUniqueCardArt(opp.leader.name, opp.faction, "creature").replace("h-16", "h-28");
     const factionClass = DB.factions[opp.faction].cardClass;
@@ -736,6 +780,7 @@ const UI = {
   },
 
   toggleObjectiveModal() {
+    this.clearModalSwipeListeners();
     const mySlot = Multiplayer.myOnlineSlot || 0;
     const me = GameState.players[mySlot] || GameState.players[0];
     const progressText = Engine.getObjectiveProgressText(me);
@@ -983,6 +1028,7 @@ const UI = {
 
   // Modale di Riepilogo Scontro SENZA barra del tempo: il gioco rimane fermo finché tutti non premono Conferma!
   showClashConfirmModal(clashHTML, onAllConfirmedCallback = null) {
+    this.clearModalSwipeListeners();
     if (GameState.readingTimerInterval) {
       clearInterval(GameState.readingTimerInterval);
       GameState.readingTimerInterval = null;
@@ -1024,6 +1070,7 @@ const UI = {
 
   // SCHERMATA 1 DI FINE ROUND: Mostra solo il Bilancio Risorse del Round appena concluso
   showRoundEndSummaryModal(endedRoundNumber, balanceLines, onConfirmCallback = null) {
+    this.clearModalSwipeListeners();
     GameState.roundEndVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const view = document.getElementById("modal-custom-view");
@@ -1065,6 +1112,7 @@ const UI = {
 
   // SCHERMATA 2 DI FINE ROUND: Mostra solo il Nuovo Round con i PC e le Carte guadagnate
   showNewRoundModal(roundNumber, firstPlayerName, regenLines, onConfirmCallback = null) {
+    this.clearModalSwipeListeners();
     GameState.newRoundVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const view = document.getElementById("modal-custom-view");
@@ -1183,6 +1231,7 @@ const UI = {
   },
 
   toggleArenaModal() {
+    this.clearModalSwipeListeners();
     if (!GameState.currentArena) return;
     const art = DB.generateUniqueCardArt(GameState.currentArena.name, "maghi", "action").replace("h-16", "h-28");
     const view = document.getElementById("modal-custom-view");
@@ -1212,6 +1261,7 @@ const UI = {
   },
 
   closeModal() {
+    this.clearModalSwipeListeners();
     document.getElementById("glass-modal").classList.add("hidden");
   },
 
@@ -1431,6 +1481,9 @@ const Engine = {
 
     if (target.hp === 0 && !target.eliminated) {
       target.eliminated = true;
+      if (sourcePlayer && sourcePlayer.objective.id === "obj_gob_3" && sourcePlayer.pc === 0) {
+        this.triggerVictory(sourcePlayer, "Obiettivo Bancarotta del Sangue completato!");
+      }
       const doubleBounty = GameState.options.arenasEnabled && GameState.currentArena?.modifier?.doubleBounty;
       if (sourcePlayer) this.gainPc(sourcePlayer, doubleBounty ? 4 : 2);
       if (target.lastDamagedBy !== null && target.lastDamagedBy !== sourcePlayer?.index) {
@@ -1551,6 +1604,16 @@ const Engine = {
     player.actionsPlayedThisTurn++;
 
     const targetEnemy = targetIdx !== null ? GameState.players[targetIdx] : null;
+
+    if (player.faction === "mutaformi" && targetEnemy) {
+      if (!player.copiedFactions) player.copiedFactions = [];
+      if (!player.copiedFactions.includes(targetEnemy.faction)) {
+        player.copiedFactions.push(targetEnemy.faction);
+        if (player.objective.id === "obj_mut_3" && player.copiedFactions.length >= 3) {
+          this.triggerVictory(player, "Obiettivo Ladri di Identità completato!");
+        }
+      }
+    }
 
     switch (card.effectCode) {
       case "act_gob_pact":
@@ -1796,6 +1859,14 @@ const Engine = {
     if (attacker.forbidAttackTarget === targetIdx) return false;
     if (target.attacksTakenThisRound >= this.getMaxAttacksPerRound()) return false;
     if (!this.isFinalDuel1v1() && GameState.lastAttackerIndex === targetIdx) return false;
+
+    // Se l'attaccante è stato provocato da "Insulto Vichingo", è obbligato ad attaccare chi lo ha provocato (se bersagliabile)
+    if (attacker.forcedTargetByIdx !== null && attacker.forcedTargetByIdx !== undefined) {
+      const taunter = GameState.players[attacker.forcedTargetByIdx];
+      if (taunter && !taunter.eliminated && taunter.attacksTakenThisRound < this.getMaxAttacksPerRound()) {
+        return targetIdx === attacker.forcedTargetByIdx;
+      }
+    }
     return true;
   },
 
@@ -1808,7 +1879,7 @@ const Engine = {
 
     GameState.slotAtkCard = card;
     GameState.currentAttackingPlayerIdx = me.index;
-    UI.setPersistentStatus(`🎯 Scegli a sinistra l'avversario illuminato da attaccare!`);
+    UI.setPersistentStatus(`⚔️ <b>${me.name}</b> sta decidendo chi attaccare...`);
     UI.renderTable();
 
     if (Multiplayer.networkMode === "ONLINE") {
@@ -1908,7 +1979,6 @@ const Engine = {
     }, 4000);
   },
 
-  // Fase 2 Scontro: Nasconde la freccia, calcola i danni e blocca il gioco sul Riepilogo finché TUTTI non premono Conferma
   finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard) {
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
@@ -1916,6 +1986,7 @@ const Engine = {
 
     GameState.waitingForDefenseFromIdx = null;
     GameState.waitingForDefenseFromP1 = false;
+    attacker.forcedTargetByIdx = null;
     UI.hideTargetingArrow();
 
     if (defCard) {
@@ -1925,56 +1996,179 @@ const Engine = {
       GameState.slotDifCard = defCard;
     }
 
-    let atkVal = atkCard.atk === "?" ? 2 : Number(atkCard.atk);
-    let difVal = defCard ? (defCard.dif === "?" ? 2 : Number(defCard.dif)) : 0;
+    // Track Obiettivo Mutaformi "Ladri di Identità" (obj_mut_3: attivare effetti contro tutte e 3 le altre fazioni)
+    const trackMutCopyFaction = (mutPlayer, enemyPlayer) => {
+      if (mutPlayer.faction !== "mutaformi" || !enemyPlayer) return;
+      if (!mutPlayer.copiedFactions) mutPlayer.copiedFactions = [];
+      if (!mutPlayer.copiedFactions.includes(enemyPlayer.faction)) {
+        mutPlayer.copiedFactions.push(enemyPlayer.faction);
+        if (mutPlayer.objective.id === "obj_mut_3" && mutPlayer.copiedFactions.length >= 3) {
+          this.triggerVictory(mutPlayer, "Obiettivo Ladri di Identità completato!");
+        }
+      }
+    };
+
+    // Gestione copia effetto per "Spia Senza Volto" (mut_stealer) e "Progenitore del Caos" (mut_primordial)
+    let atkEff = atkCard.effectCode;
+    let defEff = defCard ? defCard.effectCode : null;
+
+    const protectDef = GameState.options.arenasEnabled && GameState.currentArena?.modifier?.protectDefenderEffects;
+    const cancelDefEffects = (atkEff === "vik_legend" || atkEff === "mag_archmage") && !protectDef;
+    const cancelAtkEffects = defEff === "vik_legend" || defEff === "mag_archmage" || defEff === "mag_mirage";
+
+    if (cancelDefEffects && defEff) {
+      appliedCombatEffects.push(`${atkCard.name}: annulla l'effetto di ${defCard.name}`);
+      defEff = null;
+    }
+    if (cancelAtkEffects && atkEff) {
+      appliedCombatEffects.push(`${defCard.name}: annulla l'effetto di ${atkCard.name}`);
+      atkEff = null;
+    }
+
+    let atkCopiedEnemy = false;
+    if ((atkEff === "mut_stealer" || atkEff === "mut_primordial") && defEff) {
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
+      if (atkEff === "mut_stealer") {
+        atkEff = defEff;
+        appliedCombatEffects.push(`${atkCard.name}: copia l'effetto di ${defCard.name}`);
+      }
+    }
+    if ((defEff === "mut_stealer" || defEff === "mut_primordial") && atkEff) {
+      trackMutCopyFaction(defender, attacker);
+      if (defEff === "mut_stealer") {
+        defEff = atkEff;
+        appliedCombatEffects.push(`${defCard.name}: copia l'effetto di ${atkCard.name}`);
+      }
+    }
+
+    // Valori Base stampati (per l'Obiettivo Maghi "Supremazia della Mente" obj_mag_2)
+    const rawBaseAtk = atkCard.atk === "?" ? 2 : Number(atkCard.atk);
+    const rawBaseDif = defCard ? (defCard.dif === "?" ? 2 : Number(defCard.dif)) : 0;
+
+    let atkVal = rawBaseAtk;
+    let difVal = rawBaseDif;
 
     if (attacker.shieldSlamActive) {
       atkVal = atkCard.dif === "?" ? 4 : Number(atkCard.dif);
       attacker.shieldSlamActive = false;
+      appliedCombatEffects.push(`Colpo di Scudo: usa DIF (${atkVal}) come ATK`);
     }
 
-    if (atkCard.effectCode === "mut_larva" && defCard) {
+    // Risoluzione Statistiche Dinamiche Mutaformi e Maghi
+    if (atkEff === "mut_larva" && defCard) {
       atkVal = Math.min(4, Math.max(2, defCard.cost));
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: ATK diventa ${atkVal}`);
     }
-    if (defCard?.effectCode === "mut_larva") {
+    if (defEff === "mut_larva") {
       difVal = Math.min(4, Math.max(2, atkCard.cost));
+      trackMutCopyFaction(defender, attacker);
       appliedCombatEffects.push(`${defCard.name}: DIF diventa ${difVal}`);
     }
-    if (atkCard.effectCode === "mut_doppel" && defCard) {
-      atkVal = Math.max(3, Number(defCard.atk) || 3);
+    if (atkEff === "mut_doppel" && defCard) {
+      atkVal = Math.max(3, rawBaseAtk, Number(defCard.atk) || 3);
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: copia ATK (${atkVal})`);
     }
-    if (defCard?.effectCode === "mut_doppel") {
-      difVal = Math.max(3, atkVal);
+    if (defEff === "mut_doppel") {
+      difVal = Math.max(3, rawBaseDif, atkVal);
+      trackMutCopyFaction(defender, attacker);
       appliedCombatEffects.push(`${defCard.name}: copia DIF (${difVal})`);
     }
-    if (atkCard.effectCode === "mut_abomination") {
+    if (atkEff === "mut_parasite") {
+      atkVal += defender.pc;
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
+      appliedCombatEffects.push(`${atkCard.name}: +${defender.pc} ATK per i PC nemici`);
+    }
+    if (defEff === "mut_parasite" && defCard) {
+      difVal += attacker.pc;
+      trackMutCopyFaction(defender, attacker);
+      appliedCombatEffects.push(`${defCard.name}: +${attacker.pc} DIF per i PC nemici`);
+    }
+    if (atkEff === "mut_assimilator") {
+      atkVal += 2;
+      if (defCard) difVal = Math.max(0, difVal - 2);
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
+      appliedCombatEffects.push(`${atkCard.name}: assorbe 2 punti stat dal nemico`);
+    }
+    if (defEff === "mut_assimilator" && defCard) {
+      difVal += 2;
+      atkVal = Math.max(0, atkVal - 2);
+      trackMutCopyFaction(defender, attacker);
+      appliedCombatEffects.push(`${defCard.name}: assorbe 2 punti ATK dal nemico`);
+    }
+    if (atkEff === "mut_shaper" && defender.pc >= attacker.pc + 2) {
+      const temp = attacker.pc;
+      attacker.pc = defender.pc;
+      defender.pc = temp;
+      trackMutCopyFaction(attacker, defender);
+      appliedCombatEffects.push(`${atkCard.name}: scambia i PC con ${defender.name}`);
+    }
+    if (defEff === "mut_shaper" && attacker.pc >= defender.pc + 2) {
+      const temp = defender.pc;
+      defender.pc = attacker.pc;
+      attacker.pc = temp;
+      trackMutCopyFaction(defender, attacker);
+      appliedCombatEffects.push(`${defCard.name}: scambia i PC con ${attacker.name}`);
+    }
+    if (atkEff === "mut_abomination") {
       atkVal = Math.min(9, Math.max(4, 20 - defender.hp));
+      atkCopiedEnemy = true;
+      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: ATK pari a ${atkVal}`);
     }
-    if (defCard?.effectCode === "mut_abomination") {
+    if (defEff === "mut_abomination") {
       difVal = Math.min(9, Math.max(4, 20 - attacker.hp));
+      trackMutCopyFaction(defender, attacker);
       appliedCombatEffects.push(`${defCard.name}: DIF pari a ${difVal}`);
     }
-    if (atkCard.effectCode === "mag_sage") {
+    if (atkCard.effectCode === "mut_primordial" && defCard) {
+      const bonus = Math.floor((Number(defCard.atk) || 4) / 2);
+      atkVal += bonus;
+      atkCopiedEnemy = true;
+      appliedCombatEffects.push(`${atkCard.name}: +${bonus} ATK dal nemico`);
+    }
+    if (defCard?.effectCode === "mut_primordial") {
+      const bonus = Math.floor(atkVal / 2);
+      difVal += bonus;
+      appliedCombatEffects.push(`${defCard.name}: +${bonus} DIF dal nemico`);
+    }
+
+    // Altri modificatori Creature (Maghi, Vichinghi, Goblin)
+    if (atkEff === "mag_sage") {
       atkVal += attacker.hand.length;
       appliedCombatEffects.push(`${atkCard.name}: +${attacker.hand.length} ATK per le carte in mano`);
     }
-    if (defCard?.effectCode === "mag_sage") {
+    if (defEff === "mag_sage") {
       difVal += defender.hand.length;
       appliedCombatEffects.push(`${defCard.name}: +${defender.hand.length} DIF per le carte in mano`);
     }
-    if (atkCard.effectCode === "mag_channeler" && attacker.actionsPlayedThisTurn > 0) {
+    if (atkEff === "mag_channeler" && attacker.actionsPlayedThisTurn > 0) {
       const bonus = attacker.actionsPlayedThisTurn * 2;
       atkVal += bonus;
       appliedCombatEffects.push(`${atkCard.name}: +${bonus} ATK per le Azioni giocate`);
     }
-    if (atkCard.effectCode === "vik_berserker" && attacker.attacksTakenThisRound > 0) {
+    if (atkEff === "vik_berserker" && (attacker.attacksTakenThisRound > 0 || !defender.hasAttackedPlayer?.[attackerIdx])) {
       atkVal += 3;
-      appliedCombatEffects.push(`${atkCard.name}: +3 ATK per Contrattacco`);
+      appliedCombatEffects.push(`${atkCard.name}: +3 ATK Furia Berserker`);
+    }
+    if (atkEff === "mag_golem" && defCard) {
+      const red = Math.min(4, defCard.cost);
+      difVal = Math.max(0, difVal - red);
+      appliedCombatEffects.push(`${atkCard.name}: riduce DIF nemica di ${red}`);
+    }
+    if (defEff === "mag_golem") {
+      const red = Math.min(4, atkCard.cost);
+      atkVal = Math.max(0, atkVal - red);
+      appliedCombatEffects.push(`${defCard.name}: riduce ATK nemico di ${red}`);
     }
 
+    // Buff da Carte Azione e Campo di Battaglia
     atkVal += attacker.buffNextAttack;
     attacker.buffNextAttack = 0;
     if (defCard) {
@@ -1991,47 +2185,80 @@ const Engine = {
       atkVal = Math.floor(atkVal / 2);
       defender.halfNextAttackDamage = false;
       this.drawCards(defender, 1);
+      appliedCombatEffects.push(`Barriera Arcana: ATK nemico dimezzato a ${atkVal}`);
     }
 
-    if (atkCard.effectCode === "gob_goliath") {
+    // Effetti Pre-Calcolo Danni
+    if (atkEff === "gob_goliath") {
       this.applyDirectDamage(attacker, 2, attacker);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} perde 2 PV`);
     }
-    if (atkCard.effectCode === "mag_apprentice") {
+    if (atkEff === "gob_piercer" && defCard && attacker.hp > 1) {
+      this.applyDirectDamage(attacker, 1, attacker);
+      difVal = Math.max(0, difVal - 2);
+      appliedCombatEffects.push(`${atkCard.name}: paga 1 PV e ignora 2 DIF`);
+    }
+    if (atkEff === "mag_apprentice") {
       this.gainPc(attacker, 1);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} guadagna +1 PC`);
     }
-    if (defCard?.effectCode === "mag_apprentice") {
+    if (defEff === "mag_apprentice") {
       this.gainPc(defender, 1);
       appliedCombatEffects.push(`${defCard.name}: ${defender.name} guadagna +1 PC`);
     }
-    if (atkCard.effectCode === "vik_runepriest") {
+    if (atkEff === "mag_siphon") {
+      if (defender.pc > 0) {
+        this.gainPc(defender, -1);
+        appliedCombatEffects.push(`${atkCard.name}: ${defender.name} perde 1 PC`);
+      } else {
+        this.applyDirectDamage(defender, 2, attacker);
+        appliedCombatEffects.push(`${atkCard.name}: ${defender.name} (0 PC) subisce 2 danni`);
+      }
+    }
+    if (defEff === "mag_siphon") {
+      if (attacker.pc > 0) {
+        this.gainPc(attacker, -1);
+        appliedCombatEffects.push(`${defCard.name}: ${attacker.name} perde 1 PC`);
+      } else {
+        this.applyDirectDamage(attacker, 2, defender);
+        appliedCombatEffects.push(`${defCard.name}: ${attacker.name} (0 PC) subisce 2 danni`);
+      }
+    }
+    if (defEff === "vik_frost") {
+      this.gainPc(attacker, -1);
+      appliedCombatEffects.push(`${defCard.name}: ${attacker.name} perde 1 PC`);
+    }
+    if (atkEff === "vik_runepriest") {
       this.healPlayer(attacker, 2);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} recupera +2 PV`);
     }
-    if (defCard?.effectCode === "vik_runepriest") {
+    if (defEff === "vik_runepriest") {
       this.healPlayer(defender, 2);
       appliedCombatEffects.push(`${defCard.name}: ${defender.name} recupera +2 PV`);
     }
-    if (defCard?.effectCode === "gob_bomber") {
+    if (defEff === "gob_bomber") {
       this.applyDirectDamage(attacker, 2, defender);
-      appliedCombatEffects.push(`${defCard.name}: infligge 2 danni diretti prima del calcolo`);
+      appliedCombatEffects.push(`${defCard.name}: infligge 2 danni diretti a ${attacker.name}`);
+      if (attacker.hp === 0 && defender.objective.id === "obj_vik_2") {
+        this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+      }
     }
-    if (atkCard.effectCode === "mag_phantom" && defCard) {
+    if (atkEff === "mag_phantom" && defCard) {
       difVal = Math.max(0, difVal - 4);
       appliedCombatEffects.push(`${atkCard.name}: ignora fino a 4 DIF`);
     }
-    if (defCard?.effectCode === "mag_mirage") {
+    if (defEff === "mag_mirage") {
       atkVal = Math.min(3, atkVal);
       appliedCombatEffects.push(`${defCard.name}: riduce l'ATK nemico a ${atkVal}`);
     }
 
+    // Calcolo Danni Finali
     let damage = Math.max(0, atkVal - difVal);
-    if (atkCard.effectCode === "gob_grinder" && damage < 2) {
+    if (atkEff === "gob_grinder" && damage < 2) {
       damage = 2;
       appliedCombatEffects.push(`${atkCard.name}: Perforazione garantisce 2 danni`);
     }
-    if (defCard?.effectCode === "vik_huscarl" && damage > 2) {
+    if (defEff === "vik_huscarl" && damage > 2) {
       damage = 2;
       appliedCombatEffects.push(`${defCard.name}: riduce il danno massimo subito a 2`);
     }
@@ -2042,52 +2269,112 @@ const Engine = {
       }
       this.applyDirectDamage(defender, damage, attacker);
       attacker.wonClashThisRound = true;
-      if (atkCard.effectCode === "gob_kamikaze") {
+
+      // Check Obiettivo Goblin "Bancarotta del Sangue" (obj_gob_3) e Mutaformi "Specchio Perfetto" (obj_mut_1)
+      if (defender.hp === 0) {
+        if (attacker.objective.id === "obj_mut_1" && atkCopiedEnemy) {
+          this.triggerVictory(attacker, "Obiettivo Specchio Perfetto completato!");
+        }
+      } else if (atkEff === "gob_grinder") {
+        this.gainPc(attacker, -2);
+        appliedCombatEffects.push(`${atkCard.name}: il bersaglio sopravvive (-2 PC)`);
+      }
+
+      if (atkEff === "gob_kamikaze") {
         this.applyDirectDamage(attacker, 1, attacker);
         appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} subisce 1 danno`);
       }
-      if (atkCard.effectCode === "gob_shaman") {
+      if (atkEff === "gob_shaman") {
         this.healPlayer(attacker, 2);
         appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} recupera +2 PV`);
       }
-      if (atkCard.effectCode === "gob_raider" && defender.pc > 0) {
+      if ((atkEff === "gob_raider" || atkEff === "gob_merc") && defender.pc > 0) {
         this.gainPc(defender, -1);
         this.gainPc(attacker, 1);
         appliedCombatEffects.push(`${atkCard.name}: ruba 1 PC a ${defender.name}`);
       }
+      if (atkEff === "vik_legend") {
+        this.drawCards(attacker, 2);
+        appliedCombatEffects.push(`${atkCard.name}: pesca 2 carte per vittoria scontro`);
+      }
       if (attacker.leader.id === "ldr_zarok" && attacker.awakened) this.healPlayer(attacker, 1);
+
+      // Obiettivi Attaccante e Difensore
       if (attacker.objective.id === "obj_gob_1" && damage >= 5) {
-        attacker.objectiveProgress++;
+        attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
         if (attacker.objectiveProgress >= 2) this.triggerVictory(attacker, "Obiettivo Furia Cieca completato!");
       }
       if (defender.objective.id === "obj_gob_2" && defender.hp > 0) {
         defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
         if (defender.objectiveProgress >= 3) this.triggerVictory(defender, "Obiettivo Carne da Macello completato!");
       }
+      if (attacker.objective.id === "obj_mag_2" && defCard && rawBaseAtk < rawBaseDif) {
+        attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
+        if (attacker.objectiveProgress >= 3) this.triggerVictory(attacker, "Obiettivo Supremazia della Mente completato!");
+      }
+      if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.drawOnWinClash) {
+        this.drawCards(attacker, 1);
+      }
     } else if (defCard) {
       defender.wonClashThisRound = true;
-      if (defCard.effectCode === "vik_shieldbearer") {
+      if (defEff === "vik_shieldbearer") {
         this.gainPc(defender, 1);
         appliedCombatEffects.push(`${defCard.name}: ${defender.name} guadagna +1 PC`);
       }
-      if (defCard.effectCode === "vik_jarl" && difVal > atkVal) {
+      if (defEff === "gob_merc" && attacker.pc > 0) {
+        this.gainPc(attacker, -1);
+        this.gainPc(defender, 1);
+        appliedCombatEffects.push(`${defCard.name}: ruba 1 PC a ${attacker.name}`);
+      }
+      if (defEff === "vik_legend") {
+        this.drawCards(defender, 2);
+        appliedCombatEffects.push(`${defCard.name}: pesca 2 carte per vittoria scontro`);
+      }
+      if (defEff === "vik_jarl" && difVal > atkVal) {
         const refl = difVal - atkVal;
         this.applyDirectDamage(attacker, refl, defender);
         appliedCombatEffects.push(`${defCard.name}: riflette ${refl} danni su ${attacker.name}`);
       }
       if (defender.leader.id === "ldr_freya") {
-        this.applyDirectDamage(attacker, defender.awakened ? 3 : 2, defender);
+        const refl = defender.awakened ? 3 : 2;
+        this.applyDirectDamage(attacker, refl, defender);
+        appliedCombatEffects.push(`Freya: riflette ${refl} danni su ${attacker.name}`);
         if (defender.awakened && attacker.pc > 0) this.gainPc(attacker, -1);
       }
+      // Check Obiettivo Vichinghi "Contrattacco Letale" (obj_vik_2: eliminare l'attaccante coi danni riflessi)
+      if (attacker.hp === 0 && defender.objective.id === "obj_vik_2") {
+        this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+      }
       if (defender.objective.id === "obj_vik_1") {
-        defender.objectiveProgress++;
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
         if (defender.objectiveProgress >= 4) this.triggerVictory(defender, "Obiettivo Muro di Ferro completato!");
       }
+      if (defender.objective.id === "obj_mag_2" && rawBaseDif < rawBaseAtk) {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (defender.objectiveProgress >= 3) this.triggerVictory(defender, "Obiettivo Supremazia della Mente completato!");
+      }
+      if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.drawOnWinClash) {
+        this.drawCards(defender, 1);
+      }
+    }
+
+    // Effetto Post-Scontro Cronomante Supremo / Arcimago del Nexus (mag_archmage)
+    if (atkEff === "mag_archmage") {
+      attacker.pc = 5;
+      this.drawCards(attacker, 1);
+      appliedCombatEffects.push(`${atkCard.name}: riporta i PC a 5 e pesca 1 carta`);
+    }
+    if (defEff === "mag_archmage") {
+      defender.pc = 5;
+      this.drawCards(defender, 1);
+      appliedCombatEffects.push(`${defCard.name}: riporta i PC a 5 e pesca 1 carta`);
     }
 
     this.drawCards(attacker, 1);
     if (defCard) this.drawCards(defender, 1);
 
+    if (!attacker.hasAttackedPlayer) attacker.hasAttackedPlayer = {};
+    attacker.hasAttackedPlayer[defenderIdx] = true;
     attacker.playedThisRound = true;
     defender.attacksTakenThisRound++;
     GameState.lastAttackerIndex = attackerIdx;
@@ -2096,21 +2383,22 @@ const Engine = {
     if (defCard) defCard.computedDif = difVal;
     UI.renderTable();
 
+    // Carte usate nello scontro renderizzate più piccole grazie a "clash-card-compact"
     const atkWins = damage > 0;
     const effectsHTML = appliedCombatEffects.length > 0
-      ? appliedCombatEffects.map((ef) => `<span class="px-2.5 py-1 rounded-lg bg-black/45 border border-white/15 text-[11px] font-bold text-amber-200">✨ ${ef}</span>`).join("")
-      : `<span class="text-[11px] text-white/50">Nessun effetto secondario attivato nello scontro</span>`;
+      ? appliedCombatEffects.map((ef) => `<span class="px-2 py-0.5 rounded-lg bg-black/50 border border-white/15 text-[10px] font-bold text-amber-200">✨ ${ef}</span>`).join("")
+      : `<span class="text-[10px] text-white/50">Nessun effetto secondario attivato nello scontro</span>`;
 
     const clashHTML = `
-      <div class="text-base font-black uppercase tracking-wider ${atkWins ? "text-rose-400" : "text-sky-400"}">
+      <div class="text-sm font-black uppercase tracking-wider ${atkWins ? "text-rose-400" : "text-sky-400"}">
         ${atkWins ? `💥 Danni Inflitti: ${damage} PV a ${defender.name}` : `🛡️ Difesa Vincente: 0 Danni Subiti`}
       </div>
-      <div class="flex items-center justify-center gap-3 my-1">
-        ${UI.buildCustomCardHTML(atkCard, atkWins ? "clash-winner" : "clash-loser")}
-        <div class="text-sm font-black text-white/50">VS</div>
-        ${defCard ? UI.buildCustomCardHTML(defCard, !atkWins ? "clash-winner" : "clash-loser") : `<div class="w-[180px] h-[140px] rounded-2xl border border-dashed border-white/20 flex items-center justify-center text-xs text-white/40">Nessuna Difesa</div>`}
+      <div class="flex items-center justify-center gap-2">
+        ${UI.buildCustomCardHTML(atkCard, `clash-card-compact ${atkWins ? "clash-winner" : "clash-loser"}`)}
+        <div class="text-xs font-black text-white/50">VS</div>
+        ${defCard ? UI.buildCustomCardHTML(defCard, `clash-card-compact ${!atkWins ? "clash-winner" : "clash-loser"}`) : `<div class="w-[150px] h-[120px] rounded-2xl border border-dashed border-white/20 flex items-center justify-center text-xs text-white/40">Nessuna Difesa</div>`}
       </div>
-      <div class="flex flex-wrap items-center justify-center gap-1.5 max-w-xl mt-1">
+      <div class="flex flex-wrap items-center justify-center gap-1 max-w-xl">
         ${effectsHTML}
       </div>
     `;
@@ -2123,7 +2411,6 @@ const Engine = {
     GameState.lastRenderedModalId = GameState.sharedModalState.id;
     Multiplayer.broadcastFullStateFromHost();
 
-    // Nessuna barra del tempo: attende che tutti premano Conferma, poi passa direttamente al turno successivo!
     UI.showClashConfirmModal(clashHTML, () => {
       GameState.sharedModalState = null;
       GameState.lastRenderedModalId = null;
@@ -2269,14 +2556,28 @@ const Engine = {
   startNewGlobalRound() {
     if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
 
-    this.getAlivePlayers().forEach((p) => {
+    const aliveList = this.getAlivePlayers();
+    aliveList.forEach((p) => {
       if (p.objective.id === "obj_mag_1" && p.hand.length >= 11 && p.hp >= 15) {
         this.triggerVictory(p, "Obiettivo Onniscienza Arcana completato!");
       }
       if (p.objective.id === "obj_vik_3" && p.pc >= 10 && p.hand.length >= 7 && p.wonClashThisRound) {
         this.triggerVictory(p, "Obiettivo Bottino del Valhalla completato!");
       }
+      if (p.objective.id === "obj_mag_3") {
+        const others = aliveList.filter((o) => o.index !== p.index);
+        if (others.length > 0 && others.every((o) => o.pc === 0)) {
+          this.triggerVictory(p, "Obiettivo Siccità di Mana completato!");
+        }
+      }
+      if (p.objective.id === "obj_mut_2" && GameState.round >= 4) {
+        const hasTwin = aliveList.some((o) => o.index !== p.index && o.hp === p.hp && o.pc === p.pc);
+        if (hasTwin) {
+          this.triggerVictory(p, "Obiettivo Simbiosi Totale completato!");
+        }
+      }
     });
+
     if (GameState.gameOver) return;
 
     const endedRound = GameState.round;
