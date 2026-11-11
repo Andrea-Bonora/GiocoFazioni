@@ -313,14 +313,14 @@
         <div id="center-action-content" class="liquid-glass px-7 py-3.5 rounded-3xl border-2 border-rose-400/80 text-base font-black tracking-wide text-white shadow-2xl flex items-center gap-3 animate-pop"></div>
     </div>
 
-    <!-- TAB VISIVO SENZA RIQUADRO GRIGIO DI SFONDO (Supporta Swipe Orizzontale) -->
-    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-4">
-        <div id="modal-content-box" class="max-w-2xl w-full flex flex-col items-center gap-3 text-center animate-pop">
-        <div id="modal-custom-view" class="w-full flex items-center justify-center"></div>
-        <div id="modal-actions" class="flex gap-3 mt-1 w-full justify-center">
-            <button id="modal-close-btn" onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>
+    <!-- TAB VISIVO SENZA RIQUADRO GRIGIO DI SFONDO (Con protezione altezza massima su schermi Landscape) -->
+    <div id="glass-modal" class="hidden fixed inset-0 z-50 bg-black/70 backdrop-blur-md flex items-center justify-center p-2 overflow-y-auto">
+      <div id="modal-content-box" class="max-w-2xl w-full max-h-[94dvh] flex flex-col items-center justify-between gap-2 text-center animate-pop my-auto">
+        <div id="modal-custom-view" class="w-full flex items-center justify-center overflow-y-auto no-scrollbar max-h-[78dvh] px-1"></div>
+        <div id="modal-actions" class="flex gap-3 shrink-0 pb-1 w-full justify-center">
+          <button id="modal-close-btn" onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>
         </div>
-        </div>
+      </div>
     </div>
 
     <!-- OVERLAY PULSAZIONE ROSSA TENUE QUANDO SEI ATTACCATO E DEVI DIFENDERTI -->

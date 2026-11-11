@@ -14,6 +14,7 @@ const GameState = {
   sharedModalState: null,       // Sincronizza i modali (Azione, Scontro, Fine Round) su tutti i dispositivi online
   lastRenderedModalId: null,
   clashConfirmVotes: [],        // Voti di conferma per chiudere il riepilogo di un attacco
+  roundEndVotes: [],
   newRoundVotes: [],
   skipVotes: [],
   readingTimerInterval: null,
@@ -1021,32 +1022,72 @@ const UI = {
     };
   },
 
-  // Schermata di Fine Round + Nuovo Round: mostra sia il bilancio risorse del Round appena concluso sia i guadagni del Nuovo Round
-  showNewRoundModal(roundNumber, firstPlayerName, roundSummaryLines, onConfirmCallback = null) {
-    GameState.newRoundVotes = [];
+  // SCHERMATA 1 DI FINE ROUND: Mostra solo il Bilancio Risorse del Round appena concluso
+  showRoundEndSummaryModal(endedRoundNumber, balanceLines, onConfirmCallback = null) {
+    GameState.roundEndVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const view = document.getElementById("modal-custom-view");
 
-    const linesHTML = (roundSummaryLines || []).map((line) => `
-      <div class="liquid-pill px-3.5 py-2 rounded-xl text-xs text-left text-white/95 font-medium">
+    const linesHTML = (balanceLines || []).map((line) => `
+      <div class="liquid-pill px-3 py-1.5 rounded-xl text-xs text-left text-white/95 flex items-center justify-between">
         ${line}
       </div>
     `).join("");
 
     view.innerHTML = `
-      <div class="liquid-glass p-5 rounded-3xl w-full max-w-xl flex flex-col items-center gap-2.5">
-        <div class="w-12 h-12 rounded-full liquid-pill border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-2xl round-emblem-anim">
-          <i data-lucide="swords" class="w-6 h-6"></i>
-        </div>
-        <div class="text-[10px] font-black uppercase tracking-widest text-cyan-300">Riepilogo Fine Round ${roundNumber - 1} & Rigenerazione</div>
-        <h3 class="text-xl font-black tracking-wide text-white">NUOVO ROUND ${roundNumber}</h3>
-        <p class="text-xs text-amber-300 font-bold mb-1">Primo ad iniziare: ${firstPlayerName}</p>
-        <div class="w-full flex flex-col gap-1.5">${linesHTML}</div>
+      <div class="liquid-glass p-4 rounded-3xl w-full max-w-lg flex flex-col items-center gap-2">
+        <div class="text-[10px] font-black uppercase tracking-widest text-amber-300">Bilancio Risorse</div>
+        <h3 class="text-lg font-black tracking-wide text-white">RIEPILOGO FINE ROUND ${endedRoundNumber}</h3>
+        <div class="w-full flex flex-col gap-1.5 mt-1">${linesHTML}</div>
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `
-      <button id="btn-confirm-round" class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">
-        Conferma (0/${totalHumans}) ➔
+      <button id="btn-confirm-round-end" class="liquid-btn-primary px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
+        Vai al Nuovo Round (0/${totalHumans}) ➔
+      </button>
+    `;
+    document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+
+    document.getElementById("btn-confirm-round-end").onclick = () => {
+      const mySlot = Multiplayer.myOnlineSlot || 0;
+      if (!GameState.roundEndVotes.includes(mySlot)) GameState.roundEndVotes.push(mySlot);
+      const btn = document.getElementById("btn-confirm-round-end");
+      if (btn) btn.textContent = `Vai al Nuovo Round (${GameState.roundEndVotes.length}/${totalHumans}) ➔`;
+
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "CONFIRM_ROUND_END" });
+      } else {
+        Engine.registerRoundEndConfirmation(mySlot, onConfirmCallback);
+      }
+    };
+  },
+
+  // SCHERMATA 2 DI FINE ROUND: Mostra solo il Nuovo Round con i PC e le Carte guadagnate
+  showNewRoundModal(roundNumber, firstPlayerName, regenLines, onConfirmCallback = null) {
+    GameState.newRoundVotes = [];
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const view = document.getElementById("modal-custom-view");
+
+    const linesHTML = (regenLines || []).map((line) => `
+      <div class="liquid-pill px-3 py-1.5 rounded-xl text-xs text-left text-white/95 flex items-center justify-between">
+        ${line}
+      </div>
+    `).join("");
+
+    view.innerHTML = `
+      <div class="liquid-glass p-4 rounded-3xl w-full max-w-lg flex flex-col items-center gap-2">
+        <div class="w-10 h-10 rounded-full liquid-pill border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-xl round-emblem-anim">
+          <i data-lucide="swords" class="w-5 h-5"></i>
+        </div>
+        <h3 class="text-lg font-black tracking-wide text-white">NUOVO ROUND ${roundNumber}</h3>
+        <p class="text-xs text-amber-300 font-bold">Primo ad iniziare: ${firstPlayerName}</p>
+        <div class="w-full flex flex-col gap-1.5 mt-0.5">${linesHTML}</div>
+      </div>
+    `;
+    document.getElementById("modal-actions").innerHTML = `
+      <button id="btn-confirm-round" class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
+        Inizia Round ${roundNumber} (0/${totalHumans}) ➔
       </button>
     `;
     document.getElementById("glass-modal").classList.remove("hidden");
@@ -1056,7 +1097,7 @@ const UI = {
       const mySlot = Multiplayer.myOnlineSlot || 0;
       if (!GameState.newRoundVotes.includes(mySlot)) GameState.newRoundVotes.push(mySlot);
       const btn = document.getElementById("btn-confirm-round");
-      if (btn) btn.textContent = `Conferma (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
+      if (btn) btn.textContent = `Inizia Round ${roundNumber} (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
         Multiplayer.sendClientAction({ kind: "CONFIRM_NEW_ROUND" });
@@ -1066,7 +1107,6 @@ const UI = {
     };
   },
 
-  // Sincronizza l'apertura e la chiusura dei modali condivisi sugli iPhone dei Client
   syncSharedModalOnClient() {
     const modal = GameState.sharedModalState;
     const totalHumans = Multiplayer.getHumanSlotsCount();
@@ -1080,11 +1120,12 @@ const UI = {
     }
 
     if (GameState.lastRenderedModalId === modal.id) {
-      // Aggiorna solo il contatore dei voti sul pulsante
       const clashBtn = document.getElementById("btn-confirm-clash");
       if (clashBtn) clashBtn.textContent = `Conferma (${(GameState.clashConfirmVotes || []).length}/${totalHumans}) ➔`;
+      const rEndBtn = document.getElementById("btn-confirm-round-end");
+      if (rEndBtn) rEndBtn.textContent = `Vai al Nuovo Round (${(GameState.roundEndVotes || []).length}/${totalHumans}) ➔`;
       const roundBtn = document.getElementById("btn-confirm-round");
-      if (roundBtn) roundBtn.textContent = `Conferma (${(GameState.newRoundVotes || []).length}/${totalHumans}) ➔`;
+      if (roundBtn) roundBtn.textContent = `Inizia Round ${modal.roundNumber || ""} (${(GameState.newRoundVotes || []).length}/${totalHumans}) ➔`;
       const skipBtn = document.getElementById("btn-skip-timer");
       if (skipBtn) skipBtn.textContent = `Salta (${(GameState.skipVotes || []).length}/${totalHumans}) ➔`;
       return;
@@ -1095,6 +1136,8 @@ const UI = {
       this.showTimedSummaryModal(modal.html, modal.durationMs || 10000, null);
     } else if (modal.type === "CLASH_CONFIRM") {
       this.showClashConfirmModal(modal.html, null);
+    } else if (modal.type === "ROUND_END_SUMMARY") {
+      this.showRoundEndSummaryModal(modal.endedRoundNumber, modal.lines, null);
     } else if (modal.type === "NEW_ROUND") {
       this.showNewRoundModal(modal.roundNumber, modal.firstPlayerName, modal.lines, null);
     }
@@ -1596,14 +1639,27 @@ const Engine = {
 
     if (card.shift) this.shiftArena();
 
-    UI.setPersistentStatus(`✨ <b>${player.name}</b> gioca carta azione${targetEnemy ? ` su <b>${targetEnemy.name}</b>` : ""}`);
+    // Rende noto a tutti nel log e nel banner del modale chi è stato scelto come bersaglio!
+    const targetBannerLog = targetEnemy
+      ? `✨ <b>${player.name}</b> usa <b>${card.name}</b> contro 🎯 <b>${targetEnemy.name}</b>!`
+      : `✨ <b>${player.name}</b> gioca la carta azione <b>${card.name}</b>`;
+
+    UI.setPersistentStatus(targetBannerLog);
     UI.renderTable();
     Multiplayer.broadcastFullStateFromHost();
 
     setTimeout(() => {
       const summaryHTML = `
-        <div class="text-xs font-bold uppercase tracking-widest text-amber-300">${player.name} gioca una Carta Azione</div>
-        ${targetEnemy ? `<div class="px-3 py-0.5 rounded-full bg-rose-500/30 border border-rose-400 text-xs font-black text-rose-200">🎯 Bersaglio: ${targetEnemy.name}</div>` : ""}
+        <div class="liquid-pill px-4 py-1.5 rounded-2xl border border-amber-400/50 text-xs font-black uppercase tracking-wider text-amber-300 shadow-lg">
+          ✨ ${player.name} gioca ${card.name}
+        </div>
+        ${
+          targetEnemy
+            ? `<div class="liquid-pill px-5 py-1.5 rounded-2xl bg-rose-500/35 border-2 border-rose-400 text-sm font-black text-white shadow-xl animate-pulse">
+                 🎯 Bersaglio Scelto: <span class="text-amber-300 underline">${targetEnemy.name}</span>
+               </div>`
+            : ""
+        }
         ${UI.buildCustomCardHTML(card)}
       `;
       GameState.sharedModalState = {
@@ -1630,6 +1686,9 @@ const Engine = {
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const btn = document.getElementById("btn-skip-timer");
     if (btn) btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
+    if (GameState.skipVotes.length >= totalHumans) {
+      GameState.sharedModalState = null;
+    }
     Multiplayer.broadcastFullStateFromHost();
   },
 
@@ -2131,11 +2190,27 @@ const Engine = {
     }, 1200);
   },
 
+  registerRoundEndConfirmation(slotIdx, localCallback = null) {
+    if (!GameState.roundEndVotes.includes(slotIdx)) GameState.roundEndVotes.push(slotIdx);
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const btn = document.getElementById("btn-confirm-round-end");
+    if (btn) btn.textContent = `Vai al Nuovo Round (${GameState.roundEndVotes.length}/${totalHumans}) ➔`;
+
+    if (GameState.roundEndVotes.length >= totalHumans) {
+      UI.closeModal();
+      if (localCallback) localCallback();
+      else this.proceedToNewRoundScreen();
+    } else {
+      Multiplayer.broadcastFullStateFromHost();
+    }
+  },
+
   registerNewRoundConfirmation(slotIdx, localCallback = null) {
     if (!GameState.newRoundVotes.includes(slotIdx)) GameState.newRoundVotes.push(slotIdx);
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const btn = document.getElementById("btn-confirm-round");
-    if (btn) btn.textContent = `Conferma (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
+    if (btn) btn.textContent = `Inizia Round ${GameState.round} (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
+
     if (GameState.newRoundVotes.length >= totalHumans) {
       GameState.sharedModalState = null;
       GameState.lastRenderedModalId = null;
@@ -2143,15 +2218,21 @@ const Engine = {
       const firstIdx = GameState.activePlayerIndex;
       UI.setPersistentStatus(`È il turno di <b>${GameState.players[firstIdx].name}</b>`);
       UI.renderTable();
-      if (GameState.players[firstIdx]?.isAI) {
+      Multiplayer.broadcastFullStateFromHost();
+
+      // IMPORTANTE: Solo l'Host (o chi gioca in locale) guida l'AI!
+      if (GameState.players[firstIdx]?.isAI && (Multiplayer.networkMode === "LOCAL" || Multiplayer.isOnlineHost)) {
         setTimeout(() => this.runAITurn(firstIdx), 900);
       }
+    } else {
+      Multiplayer.broadcastFullStateFromHost();
     }
-    Multiplayer.broadcastFullStateFromHost();
   },
 
   advanceTurn(attackedPlayerIdx) {
     if (GameState.gameOver) return;
+    // Se sono un Client online, attendo lo stato dall'Host senza calcolare turni autonomamente
+    if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
 
     let nextIdx = null;
     if (
@@ -2184,8 +2265,10 @@ const Engine = {
     }
   },
 
-  // A fine Round mostra il Bilancio del Round appena concluso + la Rigenerazione del Nuovo Round in 4 righe
+  // STEP 1 FINE ROUND: Calcola e mostra prima il "Riepilogo Fine Round X" (Bilancio del round appena concluso)
   startNewGlobalRound() {
+    if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
+
     this.getAlivePlayers().forEach((p) => {
       if (p.objective.id === "obj_mag_1" && p.hand.length >= 11 && p.hp >= 15) {
         this.triggerVictory(p, "Obiettivo Onniscienza Arcana completato!");
@@ -2196,6 +2279,47 @@ const Engine = {
     });
     if (GameState.gameOver) return;
 
+    const endedRound = GameState.round;
+    const fmtDelta = (val, unit, posCol, negCol) => {
+      if (val > 0) return `<span class="${posCol} font-black">+${val} ${unit}</span>`;
+      if (val < 0) return `<span class="${negCol} font-black">${val} ${unit}</span>`;
+      return `<span class="text-white/40">0 ${unit}</span>`;
+    };
+
+    const balanceLines = GameState.players.map((p) => {
+      if (p.eliminated) return `<span>💀 <b>${p.name}</b></span><span class="text-rose-400 font-bold">Eliminato</span>`;
+      const snap = GameState.roundStartSnapshot?.[p.index] || { hp: p.hp, pc: p.pc, hand: p.hand.length };
+      const dHp = p.hp - snap.hp;
+      const dPc = p.pc - snap.pc;
+      const dCards = p.hand.length - snap.hand;
+      return `
+        <span class="font-black text-white truncate w-24">${p.name}</span>
+        <span class="flex items-center gap-3 text-[11px]">
+          <span>♥ ${p.hp} (${fmtDelta(dHp, "PV", "text-emerald-300", "text-rose-300")})</span>
+          <span>⚡ ${p.pc} (${fmtDelta(dPc, "PC", "text-cyan-300", "text-amber-300")})</span>
+          <span>🃏 ${p.hand.length} (${fmtDelta(dCards, "Carte", "text-purple-300", "text-orange-300")})</span>
+        </span>
+      `;
+    });
+
+    GameState.sharedModalState = {
+      id: "round_end_" + Date.now(),
+      type: "ROUND_END_SUMMARY",
+      endedRoundNumber: endedRound,
+      lines: balanceLines
+    };
+    GameState.lastRenderedModalId = GameState.sharedModalState.id;
+    Multiplayer.broadcastFullStateFromHost();
+
+    UI.showRoundEndSummaryModal(endedRound, balanceLines, () => {
+      this.proceedToNewRoundScreen();
+    });
+  },
+
+  // STEP 2 FINE ROUND: Applica la rigenerazione e mostra la schermata "Nuovo Round Y" (PC e Carte guadagnate)
+  proceedToNewRoundScreen() {
+    if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
+
     GameState.round++;
     GameState.baseOrder.push(GameState.baseOrder.shift());
     GameState.lastAttackerIndex = null;
@@ -2205,25 +2329,13 @@ const Engine = {
         ? GameState.currentArena.modifier.roundPcRegen
         : 3;
 
-    const summaryLines = [];
-    const fmtDelta = (val, unit, posCol, negCol) => {
-      if (val > 0) return `<span class="${posCol} font-bold">+${val} ${unit}</span>`;
-      if (val < 0) return `<span class="${negCol} font-bold">${val} ${unit}</span>`;
-      return `<span class="text-white/50">0 ${unit}</span>`;
-    };
+    const regenLines = [];
 
     GameState.players.forEach((p) => {
       if (p.eliminated) {
-        summaryLines.push(`💀 <b>${p.name}</b>: Eliminato`);
+        regenLines.push(`<span>💀 <b>${p.name}</b></span><span class="text-white/40">Eliminato</span>`);
         return;
       }
-      // 1. Calcola il bilancio del Round appena terminato rispetto a roundStartSnapshot
-      const snap = GameState.roundStartSnapshot?.[p.index] || { hp: p.hp, pc: p.pc, hand: p.hand.length };
-      const roundHpDiff = p.hp - snap.hp;
-      const roundPcDiff = p.pc - snap.pc;
-      const roundCardsDiff = p.hand.length - snap.hand;
-
-      // 2. Applica la rigenerazione del Nuovo Round
       p.playedThisRound = false;
       p.attacksTakenThisRound = 0;
       p.usedLeaderThisRound = false;
@@ -2234,34 +2346,40 @@ const Engine = {
       const gainedPc = p.pc - beforePc;
       const drawnCount = this.drawCards(p, 1, true);
 
-      summaryLines.push(
-        `<div><b>${p.name}</b> — <i>Bilancio Round:</i> ${fmtDelta(roundHpDiff, "PV", "text-emerald-300", "text-rose-300")}, ${fmtDelta(roundPcDiff, "PC", "text-cyan-300", "text-amber-300")}, ${fmtDelta(roundCardsDiff, "Carte", "text-purple-300", "text-orange-300")} <br><span class="text-[11px] text-white/80">↳ <b>Nuovo Round:</b> <span class="text-cyan-300 font-bold">+${gainedPc} PC</span> (${p.pc} tot) • <span class="text-purple-300 font-bold">+${drawnCount} Carta</span> (${p.hand.length} in mano) • <b>${p.hp} PV</b></span></div>`
-      );
+      regenLines.push(`
+        <span class="font-black text-white truncate w-24">${p.name}</span>
+        <span class="flex items-center gap-3 text-[11px]">
+          <span class="text-cyan-300 font-bold">+${gainedPc} PC <span class="text-white/60">(Tot: ${p.pc})</span></span>
+          <span class="text-purple-300 font-bold">+${drawnCount} Carta <span class="text-white/60">(Mano: ${p.hand.length})</span></span>
+        </span>
+      `);
     });
 
-    GameState.roundSummaryLines = summaryLines;
+    GameState.roundSummaryLines = regenLines;
     const firstIdx = GameState.baseOrder.find((idx) => !GameState.players[idx].eliminated);
     GameState.activePlayerIndex = firstIdx;
     this.takeRoundStartSnapshot();
     UI.renderTable();
 
     GameState.sharedModalState = {
-      id: "round_" + Date.now(),
+      id: "round_new_" + Date.now(),
       type: "NEW_ROUND",
       roundNumber: GameState.round,
       firstPlayerName: GameState.players[firstIdx].name,
-      lines: summaryLines
+      lines: regenLines
     };
     GameState.lastRenderedModalId = GameState.sharedModalState.id;
     Multiplayer.broadcastFullStateFromHost();
 
-    UI.showNewRoundModal(GameState.round, GameState.players[firstIdx].name, summaryLines);
+    UI.showNewRoundModal(GameState.round, GameState.players[firstIdx].name, regenLines);
   },
 
+  // Eseguito SOLO dall'Host in partite online, che trasmette in diretta ogni passo dell'AI agli ospiti!
   runAITurn(aiIdx) {
     if (GameState.gameOver) return;
-    const ai = GameState.players[aiIdx];
+    if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
 
+    const ai = GameState.players[aiIdx];
     UI.setPersistentStatus(`💭 <b>${ai.name}</b> sta pensando...`);
     UI.renderTable();
     Multiplayer.broadcastFullStateFromHost();

@@ -242,6 +242,7 @@ const Multiplayer = {
         roundSummaryLines: GameState.roundSummaryLines,
         sharedModalState: GameState.sharedModalState,
         clashConfirmVotes: GameState.clashConfirmVotes,
+        roundEndVotes: GameState.roundEndVotes,
         newRoundVotes: GameState.newRoundVotes,
         skipVotes: GameState.skipVotes,
         players: GameState.players,
@@ -311,7 +312,10 @@ const Multiplayer = {
       Engine.registerActionSkipVote(slotIdx);
     } else if (act.kind === "CONFIRM_CLASH") {
       Engine.registerClashConfirmation(slotIdx);
-    } else if (act.kind === "CONFIRM_NEW_ROUND") {
+    } else if (act.kind === "CONFIRM_ROUND_END") {
+      Engine.registerRoundEndConfirmation(slotIdx);
+    }
+     else if (act.kind === "CONFIRM_NEW_ROUND") {
       Engine.registerNewRoundConfirmation(slotIdx);
     } else if (act.kind === "PLAY_ACTION_CARD") {
       const p = GameState.players[slotIdx];
