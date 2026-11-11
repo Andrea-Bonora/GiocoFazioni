@@ -638,7 +638,7 @@ const DB = {
         <img src="${imgPath}" 
              alt="${cardName}" 
              loading="lazy"
-             class="w-full h-full object-cover object-center relative z-10"
+             class="w-full h-full object-cover object-center"
              onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
         <svg viewBox="0 0 100 84" style="display:none;" class="w-full h-full absolute inset-0 z-0">
           <defs>

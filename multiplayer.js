@@ -238,9 +238,10 @@ const Multiplayer = {
         slotDifCard: GameState.slotDifCard,
         waitingForDefenseFromIdx: GameState.waitingForDefenseFromIdx,
         persistentStatusText: GameState.persistentStatusText,
-        turnStartSnapshot: GameState.turnStartSnapshot,
+        roundStartSnapshot: GameState.roundStartSnapshot,
         roundSummaryLines: GameState.roundSummaryLines,
-        endTurnVotes: GameState.endTurnVotes,
+        sharedModalState: GameState.sharedModalState,
+        clashConfirmVotes: GameState.clashConfirmVotes,
         newRoundVotes: GameState.newRoundVotes,
         skipVotes: GameState.skipVotes,
         players: GameState.players,
@@ -292,6 +293,7 @@ const Multiplayer = {
         Object.assign(GameState, data.state);
         if (GameState.currentScreen !== "TABLE") UI.showTableScreen();
         UI.renderTable();
+        UI.syncSharedModalOnClient();
       }
     }
   },
@@ -306,17 +308,33 @@ const Multiplayer = {
       const p = GameState.players[slotIdx];
       if (p) UI.setPersistentStatus(`💭 <b>${p.name}</b> sta pensando...`);
     } else if (act.kind === "VOTE_SKIP_SUMMARY") {
-      if (!GameState.skipVotes.includes(slotIdx)) GameState.skipVotes.push(slotIdx);
-    } else if (act.kind === "CONFIRM_END_TURN") {
-      Engine.registerEndTurnConfirmation(slotIdx);
+      Engine.registerActionSkipVote(slotIdx);
+    } else if (act.kind === "CONFIRM_CLASH") {
+      Engine.registerClashConfirmation(slotIdx);
     } else if (act.kind === "CONFIRM_NEW_ROUND") {
       Engine.registerNewRoundConfirmation(slotIdx);
     } else if (act.kind === "PLAY_ACTION_CARD") {
-      Engine.executeActionCardEffect(GameState.players[slotIdx], act.card, act.targetIdx, null, act.discardUid);
+      const p = GameState.players[slotIdx];
+      const card = p?.hand.find((c) => c.uid === act.cardUid);
+      if (p && card) Engine.executeActionCardEffect(p, card, act.targetIdx, null, act.discardUid);
+    } else if (act.kind === "ACTIVATE_LEADER") {
+      Engine.executeLeaderSkillOnHost(slotIdx, act.targetIdx, act.discardUid);
+    } else if (act.kind === "STAGE_ATK_CARD") {
+      const p = GameState.players[slotIdx];
+      const card = p?.hand.find((c) => c.uid === act.cardUid);
+      if (card) {
+        GameState.slotAtkCard = card;
+        GameState.currentAttackingPlayerIdx = slotIdx;
+        UI.renderTable();
+      }
     } else if (act.kind === "DECLARE_ATTACK") {
-      Engine.resolveCombat(slotIdx, act.targetIdx, act.card);
+      const p = GameState.players[slotIdx];
+      const card = p?.hand.find((c) => c.uid === act.cardUid) || GameState.slotAtkCard;
+      if (card) Engine.resolveCombat(slotIdx, act.targetIdx, card);
     } else if (act.kind === "SUBMIT_DEFENSE") {
-      Engine.finishCombatResolution(GameState.currentAttackingPlayerIdx, slotIdx, GameState.slotAtkCard, act.card);
+      const p = GameState.players[slotIdx];
+      const card = act.cardUid ? p?.hand.find((c) => c.uid === act.cardUid) : null;
+      Engine.finishCombatResolution(GameState.currentAttackingPlayerIdx, slotIdx, GameState.slotAtkCard, card);
     } else if (act.kind === "PASS_TURN") {
       Engine.executePassTurn(slotIdx);
     }

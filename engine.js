@@ -9,9 +9,11 @@ const GameState = {
   persistentStatusText: "Inizio partita • In attesa della prima mossa...",
   turnEventsLog: [],
   combatEffectsLog: [],         // Registra SOLO gli effetti delle 2 carte nello scontro attuale
-  turnStartSnapshot: {},        // Fotografa PV, PC e Carte a inizio turno per il recap "Conferma Fine Turno"
   roundSummaryLines: [],        // Le 4 righe descrittive di Nuovo Round (chi guadagna cosa)
-  endTurnVotes: [],
+  roundStartSnapshot: {},       // Fotografa PV, PC e Carte a inizio ROUND per il recap di Fine Round
+  sharedModalState: null,       // Sincronizza i modali (Azione, Scontro, Fine Round) su tutti i dispositivi online
+  lastRenderedModalId: null,
+  clashConfirmVotes: [],        // Voti di conferma per chiudere il riepilogo di un attacco
   newRoundVotes: [],
   skipVotes: [],
   readingTimerInterval: null,
@@ -146,63 +148,6 @@ const UI = {
 
   showCenterActionBanner(htmlText) {
     this.setPersistentStatus(htmlText);
-  },
-
-  // Freccia Curva Moderna ed Elegante del colore della Fazione che attacca
-  drawTargetingArrow(fromPlayerIdx, toPlayerIdx, onComplete) {
-    const svg = document.getElementById("targeting-arrow-layer");
-    const pathEl = document.getElementById("targeting-arrow-path");
-    const glowEl = document.getElementById("targeting-arrow-glow");
-    const headEl = document.getElementById("target-arrowhead-path");
-    const reticleEl = document.getElementById("targeting-reticle");
-    const mySlot = Multiplayer.myOnlineSlot || 0;
-
-    const getBoxEl = (pIdx) => (pIdx === mySlot ? document.getElementById("p1-resource-box") : document.getElementById(`opp-box-${pIdx}`));
-    const fromEl = getBoxEl(fromPlayerIdx);
-    const toEl = getBoxEl(toPlayerIdx);
-
-    if (!svg || !pathEl || !fromEl || !toEl) {
-      if (onComplete) onComplete();
-      return;
-    }
-
-    const attacker = GameState.players[fromPlayerIdx];
-    const factionColors = {
-      goblin: "#4ade80",    // Verde
-      vichinghi: "#38bdf8", // Azzurro
-      maghi: "#c084fc",     // Viola
-      mutaformi: "#f87171"  // Rosso
-    };
-    const strokeCol = factionColors[attacker?.faction] || "#38bdf8";
-
-    const r1 = fromEl.getBoundingClientRect();
-    const r2 = toEl.getBoundingClientRect();
-    const x1 = r1.left + r1.width / 2;
-    const y1 = r1.top + r1.height / 2;
-    const x2 = r2.left + r2.width / 2;
-    const y2 = r2.top + r2.height / 2;
-
-    // Curva di Bézier elegante verso il centro dello schermo
-    const cx = (x1 + x2) / 2 + (y2 > y1 ? 45 : -45);
-    const cy = Math.min(y1, y2) - 40;
-    const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
-
-    pathEl.setAttribute("d", d);
-    pathEl.setAttribute("stroke", strokeCol);
-    glowEl.setAttribute("d", d);
-    glowEl.setAttribute("stroke", strokeCol);
-    if (headEl) headEl.setAttribute("fill", strokeCol);
-    if (reticleEl) {
-      reticleEl.setAttribute("cx", x2);
-      reticleEl.setAttribute("cy", y2);
-      reticleEl.setAttribute("stroke", strokeCol);
-    }
-
-    svg.classList.remove("hidden");
-    setTimeout(() => {
-      svg.classList.add("hidden");
-      if (onComplete) onComplete();
-    }, 1800);
   },
 
   // Sopra alla Zona ATK e DIF mostra SOLO il nome di chi è coinvolto (senza PV e PC)
@@ -549,23 +494,6 @@ const UI = {
     `;
   },
 
-  renderMiniSlot(slotId, card, placeholder) {
-    const el = document.getElementById(slotId);
-    if (!card) {
-      el.innerHTML = `<span>${placeholder}</span>`;
-      return;
-    }
-    el.innerHTML = `
-      <div class="relative w-full h-full rounded-xl overflow-hidden">
-        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
-        <div class="absolute bottom-0 inset-x-0 bg-black/80 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
-          <span class="text-rose-300">⚔️${card.computedAtk ?? card.atk}</span>
-          <span class="text-sky-300">🛡️${card.computedDif ?? card.dif}</span>
-        </div>
-      </div>
-    `;
-  },
-
   renderTable() {
     if (!GameState.players || GameState.players.length === 0) return;
     const mySlot = Multiplayer.myOnlineSlot || 0;
@@ -826,73 +754,275 @@ const UI = {
     document.getElementById("glass-modal").classList.remove("hidden");
   },
 
-  inspectSlot(type) {
-    const card = type === "atk" ? GameState.slotAtkCard : GameState.slotDifCard;
-    if (card) this.inspectCard(card, false);
+  // Disegna la freccia d'attacco: se keepVisible = true resta visibile finché il difensore non sceglie la carta!
+  drawTargetingArrow(fromPlayerIdx, toPlayerIdx, onComplete = null, keepVisible = false) {
+    const svg = document.getElementById("targeting-arrow-layer");
+    const pathEl = document.getElementById("targeting-arrow-path");
+    const glowEl = document.getElementById("targeting-arrow-glow");
+    const headEl = document.getElementById("target-arrowhead-path");
+    const reticleEl = document.getElementById("targeting-reticle");
+    const mySlot = Multiplayer.myOnlineSlot || 0;
+
+    const getBoxEl = (pIdx) => (pIdx === mySlot ? document.getElementById("p1-resource-box") : document.getElementById(`opp-box-${pIdx}`));
+    const fromEl = getBoxEl(fromPlayerIdx);
+    const toEl = getBoxEl(toPlayerIdx);
+
+    if (!svg || !pathEl || !fromEl || !toEl) {
+      if (onComplete) onComplete();
+      return;
+    }
+
+    const attacker = GameState.players[fromPlayerIdx];
+    const factionColors = {
+      goblin: "#4ade80",
+      vichinghi: "#38bdf8",
+      maghi: "#c084fc",
+      mutaformi: "#f87171"
+    };
+    const strokeCol = factionColors[attacker?.faction] || "#38bdf8";
+
+    const r1 = fromEl.getBoundingClientRect();
+    const r2 = toEl.getBoundingClientRect();
+    const x1 = r1.left + r1.width / 2;
+    const y1 = r1.top + r1.height / 2;
+    const x2 = r2.left + r2.width / 2;
+    const y2 = r2.top + r2.height / 2;
+
+    const cx = (x1 + x2) / 2 + (y2 > y1 ? 45 : -45);
+    const cy = Math.min(y1, y2) - 40;
+    const d = `M ${x1} ${y1} Q ${cx} ${cy} ${x2} ${y2}`;
+
+    pathEl.setAttribute("d", d);
+    pathEl.setAttribute("stroke", strokeCol);
+    glowEl.setAttribute("d", d);
+    glowEl.setAttribute("stroke", strokeCol);
+    if (headEl) headEl.setAttribute("fill", strokeCol);
+    if (reticleEl) {
+      reticleEl.setAttribute("cx", x2);
+      reticleEl.setAttribute("cy", y2);
+      reticleEl.setAttribute("stroke", strokeCol);
+    }
+
+    svg.classList.remove("hidden");
+
+    if (!keepVisible) {
+      setTimeout(() => {
+        svg.classList.add("hidden");
+        if (onComplete) onComplete();
+      }, 1800);
+    } else if (onComplete) {
+      onComplete();
+    }
   },
 
-  // Schermata "Conferma Fine Turno": mostra per tutti i 4 giocatori i PV, PC e Carte in mano persi/guadagnati in questo turno
-  showEndOfTurnSummaryModal(onAllConfirmedCallback) {
-    GameState.endTurnVotes = [];
-    const totalHumans = Multiplayer.getHumanSlotsCount();
-    const view = document.getElementById("modal-custom-view");
+  hideTargetingArrow() {
+    const svg = document.getElementById("targeting-arrow-layer");
+    if (svg) svg.classList.add("hidden");
+  },
 
-    const rowsHTML = GameState.players.map((p) => {
-      const snap = GameState.turnStartSnapshot[p.index] || { hp: p.hp, pc: p.pc, hand: p.hand.length };
-      const dHp = p.hp - snap.hp;
-      const dPc = p.pc - snap.pc;
-      const dCards = p.hand.length - snap.hand;
+  // Negli slot ATK/DIF mantiene ATK e DIF in primo piano (z-20) sopra le immagini .jpg
+  renderMiniSlot(slotId, card, placeholder) {
+    const el = document.getElementById(slotId);
+    if (!card) {
+      el.innerHTML = `<span>${placeholder}</span>`;
+      return;
+    }
+    el.innerHTML = `
+      <div class="relative w-full h-full rounded-xl overflow-hidden">
+        <div class="absolute inset-0 z-0">${card.svgArt.replace("h-16", "h-full")}</div>
+        <div class="absolute bottom-0 inset-x-0 z-20 bg-black/85 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
+          <span class="text-rose-300">⚔️${card.computedAtk ?? card.atk}</span>
+          <span class="text-sky-300">🛡️${card.computedDif ?? card.dif}</span>
+        </div>
+      </div>
+    `;
+  },
 
-      const fmt = (val, unit, posCol, negCol) => {
-        if (val > 0) return `<span class="${posCol} font-black">+${val} ${unit}</span>`;
-        if (val < 0) return `<span class="${negCol} font-black">${val} ${unit}</span>`;
-        return `<span class="text-white/40">0 ${unit}</span>`;
+  renderTable() {
+    if (!GameState.players || GameState.players.length === 0) return;
+    const mySlot = Multiplayer.myOnlineSlot || 0;
+    const me = GameState.players[mySlot] || GameState.players[0];
+    const iAmWaitingToDefend = GameState.waitingForDefenseFromIdx === mySlot;
+    GameState.waitingForDefenseFromP1 = iAmWaitingToDefend;
+
+    const attackOverlay = document.getElementById("under-attack-overlay");
+    if (attackOverlay) attackOverlay.classList.toggle("hidden", !iAmWaitingToDefend);
+
+    const bar = document.getElementById("persistent-status-bar");
+    if (bar && GameState.persistentStatusText) bar.innerHTML = GameState.persistentStatusText;
+
+    // 1. Colonna Sinistra: Gli altri 3 giocatori
+    const oppCol = document.getElementById("opponents-col");
+    oppCol.innerHTML = "";
+    const opponents = GameState.players.filter((p) => p.index !== me.index);
+
+    const isSelectingAttackTarget =
+      GameState.activePlayerIndex === me.index &&
+      GameState.slotAtkCard !== null &&
+      GameState.currentDefendingPlayerIdx === null;
+
+    opponents.forEach((opp) => {
+      const isTurn = GameState.activePlayerIndex === opp.index && GameState.currentDefendingPlayerIdx === null;
+      const isBeingAttacked = GameState.currentDefendingPlayerIdx === opp.index;
+      const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
+      const isSelectableActionTarget = GameState.pendingTargetSelection?.validTargets.includes(opp.index);
+      const isSelectableAttackTarget = isSelectingAttackTarget && Engine.isValidAttackTarget(me.index, opp.index);
+
+      let borderClass = "";
+      if (isSelectableActionTarget || isSelectableAttackTarget) borderClass = "target-selectable-glow";
+      else if (isBeingAttacked) borderClass = "status-attacked-red";
+      else if (isTurn) borderClass = "status-turn-green";
+      else if (isImmune) borderClass = "status-immune-yellow";
+
+      const box = document.createElement("div");
+      box.id = `opp-box-${opp.index}`;
+      box.className = `relative liquid-glass panel-${opp.faction} p-2 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
+        opp.eliminated ? "opacity-30 grayscale pointer-events-none" : ""
+      }`;
+
+      box.onclick = () => {
+        if (GameState.pendingTargetSelection) {
+          Engine.handlePendingTargetClick(opp.index);
+        } else if (isSelectingAttackTarget) {
+          Engine.confirmTargetForDraggedAttack(opp.index);
+        } else {
+          this.inspectPlayer(opp);
+        }
       };
 
-      return `
-        <div class="liquid-pill panel-${p.faction} px-3.5 py-2 rounded-xl flex items-center justify-between text-xs">
-          <span class="font-black text-white w-28 truncate text-left">${p.name}</span>
-          <div class="flex items-center gap-4">
-            <div>♥ ${p.hp} (${fmt(dHp, "PV", "text-emerald-300", "text-rose-300")})</div>
-            <div>⚡ ${p.pc} (${fmt(dPc, "PC", "text-cyan-300", "text-amber-300")})</div>
-            <div>🃏 ${p.hand.length} (${fmt(dCards, "Carte", "text-purple-300", "text-orange-300")})</div>
+      box.innerHTML = `
+        <div class="flex items-center justify-between text-xs font-black">
+          <span class="truncate">${opp.name} • ${DB.factions[opp.faction].name}</span>
+          <span class="text-[11px] text-white/90">🃏 ${opp.hand.length}/${Engine.getPlayerHandLimit(opp)}</span>
+        </div>
+        <div class="text-[10px] font-bold text-amber-300 truncate">${opp.leader.name}</div>
+        <div class="flex items-center justify-between">
+          <div class="flex items-center gap-2.5 text-xs font-black">
+            <span class="text-rose-300 flex items-center gap-0.5"><i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>${opp.hp}</span>
+            <span class="text-cyan-300 flex items-center gap-0.5"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>${opp.pc}</span>
           </div>
+          <div class="flex gap-1">${this.buildBuffBadgesHTML(opp)}</div>
         </div>
       `;
-    }).join("");
+      oppCol.appendChild(box);
+    });
+
+    // 2. Zona Centrale Superiore: Solo Nome sopra Zona ATK e DIF
+    this.renderMiniArenaPills();
+    this.renderMiniSlot("slot-attacker", GameState.slotAtkCard, "Zona ATK");
+    this.renderMiniSlot("slot-defender", GameState.slotDifCard, "Zona DIF");
+
+    // Se c'è un attacco in corso e non è ancora stata scelta la carta difensiva, mantiene la freccia d'attacco visibile!
+    if (GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx !== null && !GameState.slotDifCard) {
+      setTimeout(() => {
+        if (GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx !== null && !GameState.slotDifCard) {
+          this.drawTargetingArrow(GameState.currentAttackingPlayerIdx, GameState.currentDefendingPlayerIdx, null, true);
+        }
+      }, 30);
+    } else {
+      this.hideTargetingArrow();
+    }
+
+    // 3. Pulsante Centrale ("SUBISCI" quando ti attaccano, "Passa" nel tuo turno)
+    const passBtn = document.getElementById("btn-pass-turn");
+    if (GameState.pendingDiscardSelection) {
+      passBtn.classList.add("hidden");
+    } else {
+      passBtn.classList.remove("hidden");
+      if (iAmWaitingToDefend) {
+        passBtn.textContent = "SUBISCI";
+        passBtn.disabled = false;
+        passBtn.classList.remove("opacity-40");
+      } else {
+        passBtn.textContent = "Passa";
+        const canPass = GameState.activePlayerIndex === me.index && GameState.currentDefendingPlayerIdx === null && !GameState.pendingTargetSelection && !GameState.slotAtkCard;
+        passBtn.disabled = !canPass;
+        passBtn.classList.toggle("opacity-40", !canPass);
+      }
+    }
+
+    // 4. Colonna Destra: PV, PC, Carte affiancati + Obiettivo & Arena
+    document.getElementById("p1-hp").textContent = me.hp;
+    document.getElementById("p1-pc").textContent = me.pc;
+    document.getElementById("p1-buff-row").innerHTML = this.buildBuffBadgesHTML(me);
+    document.getElementById("p1-hand-counter").textContent = `${me.hand.length}/${Engine.getPlayerHandLimit(me)}`;
+    document.getElementById("arena-badge").classList.toggle("hidden", !GameState.options.arenasEnabled);
+    document.getElementById("p1-leader-name").textContent = me.leader.name;
+    document.getElementById("my-leader-art").innerHTML = DB.generateUniqueCardArt(me.leader.name, me.faction, "creature").replace("h-16", "h-full");
+
+    // 5. Mano del Giocatore (con z-20 su PC, ATK e DIF così restano sempre visibili sopra le foto .jpg!)
+    const handContainer = document.getElementById("player-hand");
+    handContainer.innerHTML = "";
+    me.hand.forEach((card, handIdx) => {
+      const effectiveCost = Engine.getEffectiveCardCost(me, card);
+      const isDiscardCandidate = GameState.pendingDiscardSelection && card.uid !== GameState.pendingDiscardSelection.sourceCardUid;
+      const mini = document.createElement("div");
+      mini.className = `hand-card-mini ${DB.factions[card.faction].cardClass} ${isDiscardCandidate ? "ring-2 ring-amber-300 animate-pulse" : ""}`;
+      mini.onclick = () => this.inspectCard(card, true, handIdx);
+
+      mini.innerHTML = `
+        <div class="absolute inset-0 z-0">${card.svgArt.replace("h-16", "h-full")}</div>
+        <span class="absolute top-1 left-1 z-20 w-5 h-5 rounded-full bg-cyan-500 border border-white text-[10px] font-black flex items-center justify-center shadow-md">
+          ${effectiveCost}
+        </span>
+        ${
+          card.type === "creature"
+            ? `<div class="absolute bottom-0 inset-x-0 z-20 bg-black/85 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
+                 <span class="text-rose-300">⚔️${card.atk}</span>
+                 <span class="text-sky-300">🛡️${card.dif}</span>
+               </div>`
+            : `<div class="absolute bottom-0 inset-x-0 z-20 bg-black/85 py-0.5 text-center text-[9px] font-bold text-amber-300">AZIONE</div>`
+        }
+      `;
+      handContainer.appendChild(mini);
+    });
+
+    lucide.createIcons();
+  },
+
+  // Modale di Riepilogo Scontro SENZA barra del tempo: il gioco rimane fermo finché tutti non premono Conferma!
+  showClashConfirmModal(clashHTML, onAllConfirmedCallback = null) {
+    if (GameState.readingTimerInterval) {
+      clearInterval(GameState.readingTimerInterval);
+      GameState.readingTimerInterval = null;
+    }
+    GameState.clashConfirmVotes = [];
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+
+    const view = document.getElementById("modal-custom-view");
+    const actions = document.getElementById("modal-actions");
 
     view.innerHTML = `
-      <div class="liquid-glass p-4 rounded-3xl w-full max-w-lg flex flex-col gap-2.5">
-        <div class="text-[10px] font-black uppercase tracking-widest text-cyan-300">Bilancio Risorse del Turno</div>
-        <h3 class="text-lg font-black text-white">Riepilogo Fine Turno</h3>
-        <div class="flex flex-col gap-1.5">${rowsHTML}</div>
+      <div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">
+        ${clashHTML}
       </div>
     `;
 
-    document.getElementById("modal-actions").innerHTML = `
-      <button id="btn-confirm-end-turn" class="liquid-btn-gold px-8 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">
-        Conferma Fine Turno (0/${totalHumans}) ➔
+    actions.innerHTML = `
+      <button id="btn-confirm-clash" class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">
+        Conferma (0/${totalHumans}) ➔
       </button>
     `;
-    document.getElementById("glass-modal").classList.remove("hidden");
 
-    document.getElementById("btn-confirm-end-turn").onclick = () => {
+    document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+
+    document.getElementById("btn-confirm-clash").onclick = () => {
       const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (!GameState.endTurnVotes.includes(mySlot)) GameState.endTurnVotes.push(mySlot);
-      const btn = document.getElementById("btn-confirm-end-turn");
-      if (btn) btn.textContent = `Conferma Fine Turno (${GameState.endTurnVotes.length}/${totalHumans}) ➔`;
+      if (!GameState.clashConfirmVotes.includes(mySlot)) GameState.clashConfirmVotes.push(mySlot);
+      const btn = document.getElementById("btn-confirm-clash");
+      if (btn) btn.textContent = `Conferma (${GameState.clashConfirmVotes.length}/${totalHumans}) ➔`;
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
-        Multiplayer.sendClientAction({ kind: "CONFIRM_END_TURN" });
-      } else if (GameState.endTurnVotes.length >= totalHumans) {
-        this.closeModal();
-        if (onAllConfirmedCallback) onAllConfirmedCallback();
+        Multiplayer.sendClientAction({ kind: "CONFIRM_CLASH" });
+      } else {
+        Engine.registerClashConfirmation(mySlot, onAllConfirmedCallback);
       }
     };
   },
 
-  // Schermata "Nuovo Round": 4 righe (una per giocatore) che descrivono esattamente PC, PV e carte guadagnate
-  showNewRoundModal(roundNumber, firstPlayerName, roundSummaryLines, onConfirmCallback) {
+  // Schermata di Fine Round + Nuovo Round: mostra sia il bilancio risorse del Round appena concluso sia i guadagni del Nuovo Round
+  showNewRoundModal(roundNumber, firstPlayerName, roundSummaryLines, onConfirmCallback = null) {
     GameState.newRoundVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const view = document.getElementById("modal-custom-view");
@@ -904,10 +1034,11 @@ const UI = {
     `).join("");
 
     view.innerHTML = `
-      <div class="liquid-glass p-5 rounded-3xl w-full max-w-lg flex flex-col items-center gap-2.5">
-        <div class="w-14 h-14 rounded-full liquid-pill border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-2xl round-emblem-anim">
-          <i data-lucide="swords" class="w-7 h-7"></i>
+      <div class="liquid-glass p-5 rounded-3xl w-full max-w-xl flex flex-col items-center gap-2.5">
+        <div class="w-12 h-12 rounded-full liquid-pill border-2 border-amber-400 flex items-center justify-center text-amber-300 shadow-2xl round-emblem-anim">
+          <i data-lucide="swords" class="w-6 h-6"></i>
         </div>
+        <div class="text-[10px] font-black uppercase tracking-widest text-cyan-300">Riepilogo Fine Round ${roundNumber - 1} & Rigenerazione</div>
         <h3 class="text-xl font-black tracking-wide text-white">NUOVO ROUND ${roundNumber}</h3>
         <p class="text-xs text-amber-300 font-bold mb-1">Primo ad iniziare: ${firstPlayerName}</p>
         <div class="w-full flex flex-col gap-1.5">${linesHTML}</div>
@@ -929,11 +1060,71 @@ const UI = {
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
         Multiplayer.sendClientAction({ kind: "CONFIRM_NEW_ROUND" });
-      } else if (GameState.newRoundVotes.length >= totalHumans) {
-        this.closeModal();
-        if (onConfirmCallback) onConfirmCallback();
+      } else {
+        Engine.registerNewRoundConfirmation(mySlot, onConfirmCallback);
       }
     };
+  },
+
+  // Sincronizza l'apertura e la chiusura dei modali condivisi sugli iPhone dei Client
+  syncSharedModalOnClient() {
+    const modal = GameState.sharedModalState;
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+
+    if (!modal) {
+      if (GameState.lastRenderedModalId !== null) {
+        GameState.lastRenderedModalId = null;
+        this.closeModal();
+      }
+      return;
+    }
+
+    if (GameState.lastRenderedModalId === modal.id) {
+      // Aggiorna solo il contatore dei voti sul pulsante
+      const clashBtn = document.getElementById("btn-confirm-clash");
+      if (clashBtn) clashBtn.textContent = `Conferma (${(GameState.clashConfirmVotes || []).length}/${totalHumans}) ➔`;
+      const roundBtn = document.getElementById("btn-confirm-round");
+      if (roundBtn) roundBtn.textContent = `Conferma (${(GameState.newRoundVotes || []).length}/${totalHumans}) ➔`;
+      const skipBtn = document.getElementById("btn-skip-timer");
+      if (skipBtn) skipBtn.textContent = `Salta (${(GameState.skipVotes || []).length}/${totalHumans}) ➔`;
+      return;
+    }
+
+    GameState.lastRenderedModalId = modal.id;
+    if (modal.type === "ACTION_TIMED") {
+      this.showTimedSummaryModal(modal.html, modal.durationMs || 10000, null);
+    } else if (modal.type === "CLASH_CONFIRM") {
+      this.showClashConfirmModal(modal.html, null);
+    } else if (modal.type === "NEW_ROUND") {
+      this.showNewRoundModal(modal.roundNumber, modal.firstPlayerName, modal.lines, null);
+    }
+  },
+
+  passTurn() {
+    const mySlot = Multiplayer.myOnlineSlot || 0;
+    if (GameState.waitingForDefenseFromIdx === mySlot) {
+      GameState.waitingForDefenseFromIdx = null;
+      GameState.waitingForDefenseFromP1 = false;
+      this.hideTargetingArrow();
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "SUBMIT_DEFENSE", cardUid: null });
+      } else {
+        Engine.finishCombatResolution(GameState.currentAttackingPlayerIdx, mySlot, GameState.slotAtkCard, null);
+      }
+      return;
+    }
+    if (GameState.activePlayerIndex === mySlot) {
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "PASS_TURN" });
+      } else {
+        Engine.executePassTurn(mySlot);
+      }
+    }
+  },
+
+  inspectSlot(type) {
+    const card = type === "atk" ? GameState.slotAtkCard : GameState.slotDifCard;
+    if (card) this.inspectCard(card, false);
   },
 
   inspectMyLeader() {
@@ -962,18 +1153,6 @@ const UI = {
     `;
     document.getElementById("modal-actions").innerHTML = `<button onclick="UI.closeModal()" class="liquid-pill px-8 py-2 rounded-xl text-xs font-bold">Chiudi</button>`;
     document.getElementById("glass-modal").classList.remove("hidden");
-  },
-
-  passTurn() {
-    const mySlot = Multiplayer.myOnlineSlot || 0;
-    if (GameState.waitingForDefenseFromP1) {
-      GameState.waitingForDefenseFromP1 = false;
-      Engine.finishCombatResolution(GameState.currentAttackingPlayerIdx, mySlot, GameState.slotAtkCard, null);
-      return;
-    }
-    if (GameState.activePlayerIndex === mySlot) {
-      Engine.executePassTurn(mySlot);
-    }
   },
 
   showModal(badge, title, body) {
@@ -1099,15 +1278,15 @@ const Engine = {
     GameState.currentDefendingPlayerIdx = null;
     GameState.waitingForDefenseFromP1 = false;
 
-    this.takeTurnStartSnapshot();
+    this.takeRoundStartSnapshot();
     UI.setPersistentStatus(`È il turno di <b>${GameState.players[0].name}</b>`);
     UI.renderTable();
   },
 
-  takeTurnStartSnapshot() {
-    GameState.turnStartSnapshot = {};
+  takeRoundStartSnapshot() {
+    GameState.roundStartSnapshot = {};
     GameState.players.forEach((p) => {
-      GameState.turnStartSnapshot[p.index] = {
+      GameState.roundStartSnapshot[p.index] = {
         hp: p.hp,
         pc: p.pc,
         hand: p.hand.length
@@ -1271,7 +1450,6 @@ const Engine = {
     const cost = this.getEffectiveCardCost(player, card);
     if (player.pc < cost) return;
 
-    // Se la carta è "Cristallo di Riserva" (act_mag_catalyst) e sono un giocatore umano, mi fa scegliere quale carta scartare dalla mano!
     if (!player.isAI && card.effectCode === "act_mag_catalyst") {
       const otherCards = player.hand.filter((c) => c.uid !== card.uid);
       if (otherCards.length === 0) {
@@ -1281,7 +1459,11 @@ const Engine = {
       GameState.pendingDiscardSelection = {
         sourceCardUid: card.uid,
         onDiscard: (discardUid) => {
-          this.executeActionCardEffect(player, card, null, onAfterConfirm, discardUid);
+          if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+            Multiplayer.sendClientAction({ kind: "PLAY_ACTION_CARD", cardUid: card.uid, targetIdx: null, discardUid });
+          } else {
+            this.executeActionCardEffect(player, card, null, onAfterConfirm, discardUid);
+          }
         }
       };
       UI.setPersistentStatus(`🗑️ Apri una carta dalla tua mano e premi <b>"Scarta questa carta"</b> per attivare ${card.name}`);
@@ -1294,12 +1476,20 @@ const Engine = {
       GameState.pendingTargetSelection = {
         validTargets,
         onSelect: (chosenTargetIdx) => {
-          this.executeActionCardEffect(player, card, chosenTargetIdx, onAfterConfirm);
+          if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+            Multiplayer.sendClientAction({ kind: "PLAY_ACTION_CARD", cardUid: card.uid, targetIdx: chosenTargetIdx, discardUid: null });
+          } else {
+            this.executeActionCardEffect(player, card, chosenTargetIdx, onAfterConfirm);
+          }
         }
       };
       UI.setPersistentStatus(`🎯 Scegli a sinistra l'avversario bersaglio per <b>${card.name}</b>`);
       UI.renderTable();
     } else {
+      if (!player.isAI && Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "PLAY_ACTION_CARD", cardUid: card.uid, targetIdx: null, discardUid: null });
+        return;
+      }
       const aiTargetIdx = validTargets && validTargets.length > 0
         ? validTargets[Math.floor(Math.random() * validTargets.length)]
         : null;
@@ -1406,9 +1596,9 @@ const Engine = {
 
     if (card.shift) this.shiftArena();
 
-    // Flusso richiesto: Mostra "<nome_giocatore> gioca carta azione" e dopo 2 secondi mostra la carta nel dettaglio
     UI.setPersistentStatus(`✨ <b>${player.name}</b> gioca carta azione${targetEnemy ? ` su <b>${targetEnemy.name}</b>` : ""}`);
     UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
 
     setTimeout(() => {
       const summaryHTML = `
@@ -1416,11 +1606,31 @@ const Engine = {
         ${targetEnemy ? `<div class="px-3 py-0.5 rounded-full bg-rose-500/30 border border-rose-400 text-xs font-black text-rose-200">🎯 Bersaglio: ${targetEnemy.name}</div>` : ""}
         ${UI.buildCustomCardHTML(card)}
       `;
+      GameState.sharedModalState = {
+        id: "act_" + Date.now(),
+        type: "ACTION_TIMED",
+        html: summaryHTML,
+        durationMs: 10000
+      };
+      GameState.lastRenderedModalId = GameState.sharedModalState.id;
+      Multiplayer.broadcastFullStateFromHost();
+
       UI.showTimedSummaryModal(summaryHTML, 10000, () => {
+        GameState.sharedModalState = null;
+        GameState.lastRenderedModalId = null;
         UI.renderTable();
+        Multiplayer.broadcastFullStateFromHost();
         if (onAfterConfirm) onAfterConfirm();
       });
     }, 2000);
+  },
+
+  registerActionSkipVote(slotIdx) {
+    if (!GameState.skipVotes.includes(slotIdx)) GameState.skipVotes.push(slotIdx);
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const btn = document.getElementById("btn-skip-timer");
+    if (btn) btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
+    Multiplayer.broadcastFullStateFromHost();
   },
 
   activateLeaderSkill(playerIdx) {
@@ -1429,21 +1639,23 @@ const Engine = {
     if (player.leader.skillType !== "active") return;
 
     if (player.leader.id === "ldr_zarok") {
-      player.usedLeaderThisRound = true;
-      if (!player.awakened) this.applyDirectDamage(player, 2, player);
-      player.buffNextAttack += 3;
-      UI.renderTable();
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: null, discardUid: null });
+      } else {
+        this.executeLeaderSkillOnHost(playerIdx, null, null);
+        Multiplayer.broadcastFullStateFromHost();
+      }
     } else if (player.leader.id === "ldr_squik") {
       if (player.hand.length === 0) return;
       GameState.pendingDiscardSelection = {
         sourceCardUid: null,
         onDiscard: (discardUid) => {
-          player.usedLeaderThisRound = true;
-          player.hand = player.hand.filter((c) => c.uid !== discardUid);
-          this.drawCards(player, 2);
-          if (player.awakened) this.gainPc(player, 1);
-          UI.setPersistentStatus(`👑 <b>${player.name}</b> ha usato il potere di Squik`);
-          UI.renderTable();
+          if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+            Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: null, discardUid });
+          } else {
+            this.executeLeaderSkillOnHost(playerIdx, null, discardUid);
+            Multiplayer.broadcastFullStateFromHost();
+          }
         }
       };
       UI.setPersistentStatus(`🗑️ Apri una carta dalla tua mano e premi <b>"Scarta questa carta"</b> per il potere di Squik`);
@@ -1455,15 +1667,12 @@ const Engine = {
       GameState.pendingTargetSelection = {
         validTargets: valid,
         onSelect: (tIdx) => {
-          player.usedLeaderThisRound = true;
-          const target = GameState.players[tIdx];
-          this.gainPc(target, -1);
-          this.gainPc(player, 1);
-          if (player.awakened) {
-            this.applyDirectDamage(target, 1, player);
-            this.healPlayer(player, 1);
+          if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+            Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: tIdx, discardUid: null });
+          } else {
+            this.executeLeaderSkillOnHost(playerIdx, tIdx, null);
+            Multiplayer.broadcastFullStateFromHost();
           }
-          UI.renderTable();
         }
       };
       UI.setPersistentStatus(`🎯 Scegli a sinistra da quale avversario rubare con Malakor`);
@@ -1476,17 +1685,48 @@ const Engine = {
       GameState.pendingTargetSelection = {
         validTargets: valid,
         onSelect: (tIdx) => {
-          player.usedLeaderThisRound = true;
-          const target = GameState.players[tIdx];
-          this.healPlayer(player, 1);
-          this.gainPc(player, 1);
-          this.applyDirectDamage(target, 1, player);
-          UI.renderTable();
+          if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+            Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: tIdx, discardUid: null });
+          } else {
+            this.executeLeaderSkillOnHost(playerIdx, tIdx, null);
+            Multiplayer.broadcastFullStateFromHost();
+          }
         }
       };
       UI.setPersistentStatus(`🎯 Scegli a sinistra da quale avversario assorbire con Morphos`);
       UI.renderTable();
     }
+  },
+
+  executeLeaderSkillOnHost(playerIdx, targetIdx = null, discardUid = null) {
+    const player = GameState.players[playerIdx];
+    if (!player || player.usedLeaderThisRound) return;
+    player.usedLeaderThisRound = true;
+
+    if (player.leader.id === "ldr_zarok") {
+      if (!player.awakened) this.applyDirectDamage(player, 2, player);
+      player.buffNextAttack += 3;
+    } else if (player.leader.id === "ldr_squik") {
+      if (discardUid) player.hand = player.hand.filter((c) => c.uid !== discardUid);
+      else if (player.hand.length > 0) player.hand.pop();
+      this.drawCards(player, 2);
+      if (player.awakened) this.gainPc(player, 1);
+    } else if (player.leader.id === "ldr_malakor" && targetIdx !== null) {
+      const target = GameState.players[targetIdx];
+      this.gainPc(target, -1);
+      this.gainPc(player, 1);
+      if (player.awakened) {
+        this.applyDirectDamage(target, 1, player);
+        this.healPlayer(player, 1);
+      }
+    } else if (player.leader.id === "ldr_morphos" && targetIdx !== null) {
+      const target = GameState.players[targetIdx];
+      this.healPlayer(player, 1);
+      this.gainPc(player, 1);
+      this.applyDirectDamage(target, 1, player);
+    }
+    UI.setPersistentStatus(`👑 <b>${player.name}</b> ha attivato il potere di <b>${player.leader.name}</b>`);
+    UI.renderTable();
   },
 
   isValidAttackTarget(attackerIdx, targetIdx) {
@@ -1511,13 +1751,18 @@ const Engine = {
     GameState.currentAttackingPlayerIdx = me.index;
     UI.setPersistentStatus(`🎯 Scegli a sinistra l'avversario illuminato da attaccare!`);
     UI.renderTable();
+
+    if (Multiplayer.networkMode === "ONLINE") {
+      if (Multiplayer.isOnlineHost) Multiplayer.broadcastFullStateFromHost();
+      else Multiplayer.sendClientAction({ kind: "STAGE_ATK_CARD", cardUid: card.uid });
+    }
   },
 
   confirmTargetForDraggedAttack(targetIdx) {
     const mySlot = Multiplayer.myOnlineSlot || 0;
     if (!this.isValidAttackTarget(mySlot, targetIdx) || !GameState.slotAtkCard) return;
     if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
-      Multiplayer.sendClientAction({ kind: "DECLARE_ATTACK", targetIdx, card: GameState.slotAtkCard });
+      Multiplayer.sendClientAction({ kind: "DECLARE_ATTACK", targetIdx, cardUid: GameState.slotAtkCard.uid });
       return;
     }
     this.resolveCombat(mySlot, targetIdx, GameState.slotAtkCard);
@@ -1530,18 +1775,20 @@ const Engine = {
     if (!card || card.type !== "creature") return;
     if (me.pc < this.getEffectiveCardCost(me, card)) return;
 
+    GameState.waitingForDefenseFromIdx = null;
     GameState.waitingForDefenseFromP1 = false;
     GameState.slotDifCard = card;
+    UI.hideTargetingArrow();
     UI.renderTable();
 
     if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
-      Multiplayer.sendClientAction({ kind: "SUBMIT_DEFENSE", card });
+      Multiplayer.sendClientAction({ kind: "SUBMIT_DEFENSE", cardUid: card.uid });
       return;
     }
     this.finishCombatResolution(GameState.currentAttackingPlayerIdx, mySlot, GameState.slotAtkCard, card);
   },
 
-  // Fase 1 Scontro: Messaggio "<nome_giocatore> attacca <nome_giocatore>", disegna la freccia e attende 4 secondi se il difensore è un Bot
+  // Fase 1 Scontro: Sincronizza l'attacco con tutti i dispositivi, mantiene la freccia visibile e attende la difesa di Umani (anche P2/P3/P4!) o Bot
   resolveCombat(attackerIdx, defenderIdx, atkCard) {
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
@@ -1550,6 +1797,7 @@ const Engine = {
     GameState.currentDefendingPlayerIdx = defenderIdx;
     GameState.slotAtkCard = atkCard;
     GameState.slotDifCard = null;
+    GameState.waitingForDefenseFromIdx = null;
 
     const atkCost = this.getEffectiveCardCost(attacker, atkCard);
     this.gainPc(attacker, -atkCost);
@@ -1562,42 +1810,54 @@ const Engine = {
 
     UI.setPersistentStatus(`⚔️ <b>${attacker.name}</b> attacca <b>${defender.name}</b>`);
     UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
 
-    UI.drawTargetingArrow(attackerIdx, defenderIdx, () => {
-      const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (defenderIdx === mySlot && !defender.isAI) {
-        const canDefend = defender.hand.some((c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c));
-        if (canDefend) {
-          GameState.waitingForDefenseFromP1 = true;
-          UI.setPersistentStatus(`🛡️ <b>${attacker.name}</b> ti attacca! Scegli una Creatura per difenderti o premi "Subisci"`);
-          UI.renderTable();
-          return;
+    // Se il difensore è un Giocatore Umano (sia Host che Ospite P2/P3/P4!)
+    if (!defender.isAI) {
+      const canDefend = defender.hand.some((c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c));
+      if (canDefend) {
+        GameState.waitingForDefenseFromIdx = defenderIdx;
+        const mySlot = Multiplayer.myOnlineSlot || 0;
+        UI.setPersistentStatus(
+          defenderIdx === mySlot
+            ? `🛡️ <b>${attacker.name}</b> ti attacca! Scegli una Creatura per difenderti o premi "SUBISCI"`
+            : `⚔️ <b>${attacker.name}</b> attacca <b>${defender.name}</b> (In attesa della difesa di ${defender.name}...)`
+        );
+        UI.renderTable();
+        Multiplayer.broadcastFullStateFromHost();
+        return; // Si ferma qui (con la freccia attiva!) finché il difensore umano non sceglie la carta o clicca SUBISCI
+      }
+    }
+
+    // Se il difensore è un Bot (o un umano senza carte giocabili), mostra la freccia per 4 secondi mentre sceglie la difesa
+    UI.setPersistentStatus(`⚔️ <b>${attacker.name}</b> attacca <b>${defender.name}</b> (${defender.name} sceglie la difesa...)`);
+    UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
+
+    setTimeout(() => {
+      let defCard = null;
+      if (defender.isAI) {
+        const affordableDefenders = defender.hand.filter(
+          (c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c)
+        );
+        if (affordableDefenders.length > 0) {
+          affordableDefenders.sort((a, b) => (Number(b.dif) || 4) - (Number(a.dif) || 4));
+          defCard = affordableDefenders[0];
         }
       }
-
-      // Se il difensore è un Bot, simula un'attesa di 4 secondi per la scelta della difesa
-      UI.setPersistentStatus(`🛡️ <b>${defender.name}</b> sta scegliendo la difesa...`);
-      setTimeout(() => {
-        let defCard = null;
-        if (defender.isAI) {
-          const affordableDefenders = defender.hand.filter(
-            (c) => c.type === "creature" && defender.pc >= this.getEffectiveCardCost(defender, c)
-          );
-          if (affordableDefenders.length > 0) {
-            affordableDefenders.sort((a, b) => (Number(b.dif) || 4) - (Number(a.dif) || 4));
-            defCard = affordableDefenders[0];
-          }
-        }
-        this.finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard);
-      }, 4000);
-    });
+      this.finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard);
+    }, 4000);
   },
 
-  // Fase 2 Scontro: Riepilogo dell'attacco snello (SOLO danni fatti + effetti delle 2 carte nello scontro!)
+  // Fase 2 Scontro: Nasconde la freccia, calcola i danni e blocca il gioco sul Riepilogo finché TUTTI non premono Conferma
   finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard) {
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
     const appliedCombatEffects = [];
+
+    GameState.waitingForDefenseFromIdx = null;
+    GameState.waitingForDefenseFromP1 = false;
+    UI.hideTargetingArrow();
 
     if (defCard) {
       const defCost = this.getEffectiveCardCost(defender, defCard);
@@ -1777,11 +2037,10 @@ const Engine = {
     if (defCard) defCard.computedDif = difVal;
     UI.renderTable();
 
-    // Recap dell'attacco: mostra SOLO i danni fatti (0 se vince la difesa) e gli effetti delle 2 carte in questione!
     const atkWins = damage > 0;
     const effectsHTML = appliedCombatEffects.length > 0
       ? appliedCombatEffects.map((ef) => `<span class="px-2.5 py-1 rounded-lg bg-black/45 border border-white/15 text-[11px] font-bold text-amber-200">✨ ${ef}</span>`).join("")
-      : `<span class="text-[11px] text-white/50">Nessun effetto secondario di carta attivato nello scontro</span>`;
+      : `<span class="text-[11px] text-white/50">Nessun effetto secondario attivato nello scontro</span>`;
 
     const clashHTML = `
       <div class="text-base font-black uppercase tracking-wider ${atkWins ? "text-rose-400" : "text-sky-400"}">
@@ -1797,17 +2056,51 @@ const Engine = {
       </div>
     `;
 
-    UI.showTimedSummaryModal(clashHTML, 10000, () => {
+    GameState.sharedModalState = {
+      id: "clash_" + Date.now(),
+      type: "CLASH_CONFIRM",
+      html: clashHTML
+    };
+    GameState.lastRenderedModalId = GameState.sharedModalState.id;
+    Multiplayer.broadcastFullStateFromHost();
+
+    // Nessuna barra del tempo: attende che tutti premano Conferma, poi passa direttamente al turno successivo!
+    UI.showClashConfirmModal(clashHTML, () => {
+      GameState.sharedModalState = null;
+      GameState.lastRenderedModalId = null;
       GameState.slotAtkCard = null;
       GameState.slotDifCard = null;
       GameState.currentAttackingPlayerIdx = null;
       GameState.currentDefendingPlayerIdx = null;
       UI.renderTable();
-      // Prima di finire il turno mostra a tutti il riepilogo del turno con il tasto "Conferma Fine Turno"
-      UI.showEndOfTurnSummaryModal(() => {
-        this.advanceTurn(defenderIdx);
-      });
+      this.advanceTurn(defenderIdx);
+      Multiplayer.broadcastFullStateFromHost();
     });
+  },
+
+  registerClashConfirmation(slotIdx, localCallback = null) {
+    if (!GameState.clashConfirmVotes.includes(slotIdx)) GameState.clashConfirmVotes.push(slotIdx);
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const btn = document.getElementById("btn-confirm-clash");
+    if (btn) btn.textContent = `Conferma (${GameState.clashConfirmVotes.length}/${totalHumans}) ➔`;
+
+    if (GameState.clashConfirmVotes.length >= totalHumans) {
+      UI.closeModal();
+      if (localCallback) {
+        localCallback();
+      } else {
+        const defIdx = GameState.currentDefendingPlayerIdx;
+        GameState.sharedModalState = null;
+        GameState.lastRenderedModalId = null;
+        GameState.slotAtkCard = null;
+        GameState.slotDifCard = null;
+        GameState.currentAttackingPlayerIdx = null;
+        GameState.currentDefendingPlayerIdx = null;
+        UI.renderTable();
+        this.advanceTurn(defIdx);
+      }
+    }
+    Multiplayer.broadcastFullStateFromHost();
   },
 
   executePassTurn(playerIdx) {
@@ -1829,37 +2122,32 @@ const Engine = {
 
     UI.setPersistentStatus(`⏭️ <b>${player.name}</b> passa il turno`);
     UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
 
+    // Nessun recap di fine turno singolo: passa direttamente al giocatore successivo dopo 1.2s
     setTimeout(() => {
-      UI.showEndOfTurnSummaryModal(() => {
-        this.advanceTurn(null);
-      });
+      this.advanceTurn(null);
+      Multiplayer.broadcastFullStateFromHost();
     }, 1200);
   },
 
-  registerEndTurnConfirmation(slotIdx) {
-    if (!GameState.endTurnVotes.includes(slotIdx)) GameState.endTurnVotes.push(slotIdx);
-    const totalHumans = Multiplayer.getHumanSlotsCount();
-    const btn = document.getElementById("btn-confirm-end-turn");
-    if (btn) btn.textContent = `Conferma Fine Turno (${GameState.endTurnVotes.length}/${totalHumans}) ➔`;
-    if (GameState.endTurnVotes.length >= totalHumans) {
-      UI.closeModal();
-      this.advanceTurn(GameState.currentDefendingPlayerIdx);
-    }
-  },
-
-  registerNewRoundConfirmation(slotIdx) {
+  registerNewRoundConfirmation(slotIdx, localCallback = null) {
     if (!GameState.newRoundVotes.includes(slotIdx)) GameState.newRoundVotes.push(slotIdx);
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const btn = document.getElementById("btn-confirm-round");
     if (btn) btn.textContent = `Conferma (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
     if (GameState.newRoundVotes.length >= totalHumans) {
+      GameState.sharedModalState = null;
+      GameState.lastRenderedModalId = null;
       UI.closeModal();
       const firstIdx = GameState.activePlayerIndex;
+      UI.setPersistentStatus(`È il turno di <b>${GameState.players[firstIdx].name}</b>`);
+      UI.renderTable();
       if (GameState.players[firstIdx]?.isAI) {
         setTimeout(() => this.runAITurn(firstIdx), 900);
       }
     }
+    Multiplayer.broadcastFullStateFromHost();
   },
 
   advanceTurn(attackedPlayerIdx) {
@@ -1885,10 +2173,10 @@ const Engine = {
       GameState.activePlayerIndex = nextIdx;
       GameState.players[nextIdx].actionsPlayedThisTurn = 0;
       GameState.players[nextIdx].forbidAttackTarget = null;
-      this.takeTurnStartSnapshot();
 
       UI.setPersistentStatus(`È il turno di <b>${GameState.players[nextIdx].name}</b>`);
       UI.renderTable();
+      Multiplayer.broadcastFullStateFromHost();
 
       if (GameState.players[nextIdx].isAI) {
         setTimeout(() => this.runAITurn(nextIdx), 1000);
@@ -1896,6 +2184,7 @@ const Engine = {
     }
   },
 
+  // A fine Round mostra il Bilancio del Round appena concluso + la Rigenerazione del Nuovo Round in 4 righe
   startNewGlobalRound() {
     this.getAlivePlayers().forEach((p) => {
       if (p.objective.id === "obj_mag_1" && p.hand.length >= 11 && p.hp >= 15) {
@@ -1917,52 +2206,65 @@ const Engine = {
         : 3;
 
     const summaryLines = [];
+    const fmtDelta = (val, unit, posCol, negCol) => {
+      if (val > 0) return `<span class="${posCol} font-bold">+${val} ${unit}</span>`;
+      if (val < 0) return `<span class="${negCol} font-bold">${val} ${unit}</span>`;
+      return `<span class="text-white/50">0 ${unit}</span>`;
+    };
 
     GameState.players.forEach((p) => {
       if (p.eliminated) {
         summaryLines.push(`💀 <b>${p.name}</b>: Eliminato`);
         return;
       }
+      // 1. Calcola il bilancio del Round appena terminato rispetto a roundStartSnapshot
+      const snap = GameState.roundStartSnapshot?.[p.index] || { hp: p.hp, pc: p.pc, hand: p.hand.length };
+      const roundHpDiff = p.hp - snap.hp;
+      const roundPcDiff = p.pc - snap.pc;
+      const roundCardsDiff = p.hand.length - snap.hand;
+
+      // 2. Applica la rigenerazione del Nuovo Round
       p.playedThisRound = false;
       p.attacksTakenThisRound = 0;
       p.usedLeaderThisRound = false;
       p.wonClashThisRound = false;
 
       const beforePc = p.pc;
-      const beforeHp = p.hp;
       this.gainPc(p, pcRegen);
       const gainedPc = p.pc - beforePc;
       const drawnCount = this.drawCards(p, 1, true);
-      const hpDiff = p.hp - beforeHp;
 
       summaryLines.push(
-        `<b>${p.name}</b>: <span class="text-cyan-300">+${gainedPc} PC</span> (${p.pc} tot) • <span class="text-purple-300">+${drawnCount} Carta</span> (${p.hand.length} in mano)${
-          hpDiff < 0 ? ` • <span class="text-rose-400">${hpDiff} PV (Mazzo esaurito)</span>` : ` • <span class="text-emerald-300">+0 PV</span> (${p.hp} PV)`
-        }`
+        `<div><b>${p.name}</b> — <i>Bilancio Round:</i> ${fmtDelta(roundHpDiff, "PV", "text-emerald-300", "text-rose-300")}, ${fmtDelta(roundPcDiff, "PC", "text-cyan-300", "text-amber-300")}, ${fmtDelta(roundCardsDiff, "Carte", "text-purple-300", "text-orange-300")} <br><span class="text-[11px] text-white/80">↳ <b>Nuovo Round:</b> <span class="text-cyan-300 font-bold">+${gainedPc} PC</span> (${p.pc} tot) • <span class="text-purple-300 font-bold">+${drawnCount} Carta</span> (${p.hand.length} in mano) • <b>${p.hp} PV</b></span></div>`
       );
     });
 
     GameState.roundSummaryLines = summaryLines;
     const firstIdx = GameState.baseOrder.find((idx) => !GameState.players[idx].eliminated);
     GameState.activePlayerIndex = firstIdx;
-    this.takeTurnStartSnapshot();
+    this.takeRoundStartSnapshot();
     UI.renderTable();
 
-    UI.showNewRoundModal(GameState.round, GameState.players[firstIdx].name, summaryLines, () => {
-      UI.setPersistentStatus(`È il turno di <b>${GameState.players[firstIdx].name}</b>`);
-      if (GameState.players[firstIdx].isAI) {
-        setTimeout(() => this.runAITurn(firstIdx), 1000);
-      }
-    });
+    GameState.sharedModalState = {
+      id: "round_" + Date.now(),
+      type: "NEW_ROUND",
+      roundNumber: GameState.round,
+      firstPlayerName: GameState.players[firstIdx].name,
+      lines: summaryLines
+    };
+    GameState.lastRenderedModalId = GameState.sharedModalState.id;
+    Multiplayer.broadcastFullStateFromHost();
+
+    UI.showNewRoundModal(GameState.round, GameState.players[firstIdx].name, summaryLines);
   },
 
-  // Simula 4 secondi di pensata per ogni giocata di ogni Bot ("<nome_giocatore> sta pensando")
   runAITurn(aiIdx) {
     if (GameState.gameOver) return;
     const ai = GameState.players[aiIdx];
 
     UI.setPersistentStatus(`💭 <b>${ai.name}</b> sta pensando...`);
     UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
 
     setTimeout(() => {
       if (GameState.gameOver) return;
@@ -1970,6 +2272,7 @@ const Engine = {
       const proceedToAttackOrPass = () => {
         UI.setPersistentStatus(`💭 <b>${ai.name}</b> sta pensando...`);
         UI.renderTable();
+        Multiplayer.broadcastFullStateFromHost();
 
         setTimeout(() => {
           if (GameState.gameOver) return;
@@ -1994,7 +2297,6 @@ const Engine = {
       if (playableActions.length > 0 && ai.pc >= 4) {
         this.initiateActionPlay(aiIdx, playableActions[0].uid, proceedToAttackOrPass);
       } else {
-        // Esegue direttamente l'attacco o il passaggio dopo i primi 4 secondi di pensata
         const playableCreatures = ai.hand.filter(
           (c) => c.type === "creature" && ai.pc >= this.getEffectiveCardCost(ai, c)
         );
