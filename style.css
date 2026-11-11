@@ -328,16 +328,39 @@
   overflow: hidden;
 }
 
-/* Animazione scorrimento freccia di puntamento SVG */
-@keyframes dashFlow {
-  to { stroke-dashoffset: -32; }
+/* Animazione scorrimento freccia curva moderna */
+@keyframes dashFlowModern {
+  to { stroke-dashoffset: -40; }
 }
-#targeting-arrow-line {
-  animation: dashFlow 0.6s linear infinite;
-  filter: drop-shadow(0 0 10px rgba(244, 63, 94, 0.95));
+@keyframes spinReticle {
+  to { transform: rotate(360deg); }
+}
+#targeting-arrow-path {
+  animation: dashFlowModern 0.55s linear infinite;
+}
+#targeting-reticle {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: spinReticle 3s linear infinite;
 }
 
-/* Transizione fluida per la barra di lettura di 5 secondi */
+/* Animazione fluida di cambio carta durante lo Swipe in mano */
+@keyframes slideInFromRight {
+  0% { transform: translateX(48px) scale(0.94); opacity: 0; }
+  100% { transform: translateX(0) scale(1); opacity: 1; }
+}
+@keyframes slideInFromLeft {
+  0% { transform: translateX(-48px) scale(0.94); opacity: 0; }
+  100% { transform: translateX(0) scale(1); opacity: 1; }
+}
+.card-swipe-next {
+  animation: slideInFromRight 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+.card-swipe-prev {
+  animation: slideInFromLeft 0.24s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Transizione fluida per la barra di lettura di 10 secondi */
 .reading-progress-fill {
   transition: width 0.1s linear;
 }

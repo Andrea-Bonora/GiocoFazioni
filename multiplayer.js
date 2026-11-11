@@ -223,6 +223,8 @@ const Multiplayer = {
       type: "STATE_SYNC",
       lobbySlots: this.lobbySlots,
       screen: GameState.currentScreen,
+      takenFactions: GameState.takenFactions,
+      setupChoices: GameState.setupChoices,
       state: {
         options: GameState.options,
         round: GameState.round,
@@ -236,8 +238,10 @@ const Multiplayer = {
         slotDifCard: GameState.slotDifCard,
         waitingForDefenseFromIdx: GameState.waitingForDefenseFromIdx,
         persistentStatusText: GameState.persistentStatusText,
-        turnEventsLog: GameState.turnEventsLog,
-        activeSummaryModal: GameState.activeSummaryModal,
+        turnStartSnapshot: GameState.turnStartSnapshot,
+        roundSummaryLines: GameState.roundSummaryLines,
+        endTurnVotes: GameState.endTurnVotes,
+        newRoundVotes: GameState.newRoundVotes,
         skipVotes: GameState.skipVotes,
         players: GameState.players,
         gameOver: GameState.gameOver
@@ -274,26 +278,41 @@ const Multiplayer = {
       this.syncMyIdentity();
       UI.renderLobbySlotsUI();
 
-      if (data.screen === "SETUP" && GameState.currentScreen === "MENU") {
+      GameState.takenFactions = data.takenFactions || {};
+      GameState.setupChoices = data.setupChoices || {};
+
+      if (data.screen === "SETUP") {
         GameState.options = data.state.options;
-        UI.goToSetup(true);
+        if (GameState.currentScreen !== "SETUP") {
+          UI.goToSetup(true);
+        } else if (!GameState.selectedFaction) {
+          UI.renderFactionSelection();
+        }
       } else if (data.screen === "TABLE") {
         Object.assign(GameState, data.state);
         if (GameState.currentScreen !== "TABLE") UI.showTableScreen();
         UI.renderTable();
-        UI.syncActiveSummaryModalFromState();
       }
     }
   },
 
   applyClientActionOnHost(act, peerId, slotIdx) {
     if (!act) return;
-    if (act.kind === "LOCK_SETUP_CHOICE") {
+    if (act.kind === "CLAIM_FACTION") {
+      Engine.claimFactionForSlot(slotIdx, act.factionId, act.playerName);
+    } else if (act.kind === "LOCK_SETUP_CHOICE") {
       Engine.registerPlayerSetupChoice(slotIdx, act.faction, act.leader, act.objective);
+    } else if (act.kind === "PLAYER_THINKING") {
+      const p = GameState.players[slotIdx];
+      if (p) UI.setPersistentStatus(`💭 <b>${p.name}</b> sta pensando...`);
     } else if (act.kind === "VOTE_SKIP_SUMMARY") {
-      Engine.registerSkipVote(slotIdx);
+      if (!GameState.skipVotes.includes(slotIdx)) GameState.skipVotes.push(slotIdx);
+    } else if (act.kind === "CONFIRM_END_TURN") {
+      Engine.registerEndTurnConfirmation(slotIdx);
+    } else if (act.kind === "CONFIRM_NEW_ROUND") {
+      Engine.registerNewRoundConfirmation(slotIdx);
     } else if (act.kind === "PLAY_ACTION_CARD") {
-      Engine.executeActionCardEffect(GameState.players[slotIdx], act.card, act.targetIdx);
+      Engine.executeActionCardEffect(GameState.players[slotIdx], act.card, act.targetIdx, null, act.discardUid);
     } else if (act.kind === "DECLARE_ATTACK") {
       Engine.resolveCombat(slotIdx, act.targetIdx, act.card);
     } else if (act.kind === "SUBMIT_DEFENSE") {

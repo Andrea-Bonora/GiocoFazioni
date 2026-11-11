@@ -92,47 +92,49 @@
 
         <div class="h-[1px] bg-white/10 my-1"></div>
 
-        <!-- Toggle Moduli Opzionali (Campi di Battaglia & Risveglio Leader) -->
-        <div class="flex flex-col gap-3">
-          <span class="text-[11px] uppercase tracking-wider text-white/60 font-semibold">Moduli Espansione</span>
-          
-          <!-- Toggle 1: Campi di Battaglia -->
-          <label class="flex items-center justify-between cursor-pointer">
-            <div class="flex items-center gap-2.5">
-              <div class="w-8 h-8 rounded-xl liquid-pill flex items-center justify-center text-amber-300">
-                <i data-lucide="mountain-snow" class="w-4 h-4"></i>
-              </div>
-              <div>
-                <div class="text-sm font-semibold">Campi di Battaglia</div>
-                <div class="text-[11px] text-white/50">Arene attive ed effetto [Spostamento]</div>
-              </div>
-            </div>
-            <input id="toggle-arenas" type="checkbox" checked class="ios-switch" />
-          </label>
+        <!-- Contenitore visibile SOLO in locale o all'Host della stanza online -->
+        <div id="host-only-menu-controls" class="flex flex-col gap-4">
+          <div class="h-[1px] bg-white/10"></div>
 
-          <!-- Toggle 2: Risveglio dei Leader -->
-          <label class="flex items-center justify-between cursor-pointer">
-            <div class="flex items-center gap-2.5">
-              <div class="w-8 h-8 rounded-xl liquid-pill flex items-center justify-center text-rose-400">
-                <i data-lucide="flame" class="w-4 h-4"></i>
+          <!-- Toggle Moduli Opzionali (Campi di Battaglia & Risveglio Leader) -->
+          <div class="flex flex-col gap-3">
+            <span class="text-[11px] uppercase tracking-wider text-white/60 font-semibold">Moduli Espansione</span>
+            
+            <label class="flex items-center justify-between cursor-pointer">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl liquid-pill flex items-center justify-center text-amber-300">
+                  <i data-lucide="mountain-snow" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold">Campi di Battaglia</div>
+                  <div class="text-[11px] text-white/50">Arene attive ed effetto [Spostamento]</div>
+                </div>
               </div>
-              <div>
-                <div class="text-sm font-semibold">Risveglio dei Leader</div>
-                <div class="text-[11px] text-white/50">Potere supremo a soglia critica + Cicatrice</div>
+              <input id="toggle-arenas" type="checkbox" checked class="ios-switch" />
+            </label>
+
+            <label class="flex items-center justify-between cursor-pointer">
+              <div class="flex items-center gap-2.5">
+                <div class="w-8 h-8 rounded-xl liquid-pill flex items-center justify-center text-rose-400">
+                  <i data-lucide="flame" class="w-4 h-4"></i>
+                </div>
+                <div>
+                  <div class="text-sm font-semibold">Risveglio dei Leader</div>
+                  <div class="text-[11px] text-white/50">Potere supremo a soglia critica + Cicatrice</div>
+                </div>
               </div>
-            </div>
-            <input id="toggle-awakening" type="checkbox" checked class="ios-switch" />
-          </label>
+              <input id="toggle-awakening" type="checkbox" checked class="ios-switch" />
+            </label>
+          </div>
+
+          <div class="h-[1px] bg-white/10"></div>
+
+          <!-- Pulsante Avvio (Visibile solo all'Host) -->
+          <button id="btn-main-start" onclick="UI.handleStartButtonClick()" class="liquid-btn-gold w-full py-3.5 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
+            <i data-lucide="swords" class="w-5 h-5"></i>
+            <span id="btn-main-start-text">Scegli Fazione e Inizia</span>
+          </button>
         </div>
-
-        <div class="h-[1px] bg-white/10 my-1"></div>
-
-        <!-- Pulsante Avvio Rapido (Prototipo / Test 4 Giocatori) -->
-        <button id="btn-main-start" onclick="UI.goToSetup()" class="liquid-btn-gold w-full py-3.5 rounded-2xl font-bold text-base shadow-lg flex items-center justify-center gap-2">
-          <i data-lucide="swords" class="w-5 h-5"></i>
-          <span>Scegli Fazione e Inizia</span>
-        </button>
-      </div>
 
       <!-- Footer Info PWA -->
       <div class="text-center text-[11px] text-white/40 flex items-center justify-center gap-1.5">
@@ -240,46 +242,54 @@
 
         <!-- PUNTO 4: LAYER SVG PER LA FRECCIA LUMINOSA DI PUNTAMENTO ("Chi mira a Chi") -->
         <svg id="targeting-arrow-layer" class="fixed inset-0 w-screen h-screen pointer-events-none z-40 hidden">
-        <defs>
-            <marker id="target-arrowhead" markerWidth="7" markerHeight="7" refX="5" refY="3.5" orient="auto">
-            <polygon points="0 0, 7 3.5, 0 7" fill="#f43f5e" />
+          <defs>
+            <marker id="target-arrowhead" markerWidth="8" markerHeight="8" refX="6" refY="4" orient="auto">
+              <path d="M 0 0 L 8 4 L 0 8 L 2 4 Z" id="target-arrowhead-path" fill="#38bdf8" />
             </marker>
-        </defs>
-        <line id="targeting-arrow-line" x1="0" y1="0" x2="0" y2="0" stroke="#f43f5e" stroke-width="5" stroke-dasharray="10 6" stroke-linecap="round" marker-end="url(#target-arrowhead)" />
+          </defs>
+          <!-- Alone morbido esterno -->
+          <path id="targeting-arrow-glow" d="" fill="none" stroke="#38bdf8" stroke-width="10" stroke-linecap="round" opacity="0.3" />
+          <!-- Tracciato principale animato -->
+          <path id="targeting-arrow-path" d="" fill="none" stroke="#38bdf8" stroke-width="4" stroke-dasharray="12 8" stroke-linecap="round" marker-end="url(#target-arrowhead)" />
+          <!-- Mirino pulsante sul bersaglio -->
+          <circle id="targeting-reticle" cx="0" cy="0" r="16" fill="none" stroke="#38bdf8" stroke-width="2.5" stroke-dasharray="6 4" />
         </svg>
 
         <!-- COLONNA DESTRA (3 col): RISORSE/COPPA/ARENA IN ALTO + ARTWORK LEADER IN BASSO -->
         <div class="col-span-3 flex flex-col justify-between items-end h-full z-20">
 
         <!-- In alto a destra: Vita, Costo, Buff Attivi, Contatore Mano, Coppa Obiettivo e Arena -->
-      <div id="p1-resource-box" class="relative flex flex-col gap-1.5 items-end w-full">
-        <div class="flex items-center gap-2">
-          <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-rose-300 font-black text-sm">
-            <i data-lucide="heart" class="w-4 h-4 fill-current"></i>
+      <div id="p1-resource-box" class="relative flex flex-col gap-1.5 items-end w-full max-w-[210px]">
+        <!-- Riga 1: 3 Indicatori affiancati (PV, PC, Carte) -->
+        <div class="grid grid-cols-3 gap-1.5 w-full">
+          <div class="liquid-pill py-1.5 px-2 rounded-2xl flex items-center justify-center gap-1 text-rose-300 font-black text-xs">
+            <i data-lucide="heart" class="w-3.5 h-3.5 fill-current shrink-0"></i>
             <span id="p1-hp">20</span>
           </div>
-          <div class="liquid-pill px-3 py-1.5 rounded-2xl flex items-center gap-1.5 text-cyan-300 font-black text-sm">
-            <i data-lucide="zap" class="w-4 h-4 fill-current"></i>
+          <div class="liquid-pill py-1.5 px-2 rounded-2xl flex items-center justify-center gap-1 text-cyan-300 font-black text-xs">
+            <i data-lucide="zap" class="w-3.5 h-3.5 fill-current shrink-0"></i>
             <span id="p1-pc">5</span>
           </div>
-        </div>
-
-        <!-- Badge dei Buff Temporanei Attivi su P1 -->
-        <div id="p1-buff-row" class="flex flex-wrap justify-end gap-1 min-h-[18px]"></div>
-
-        <!-- Linea Obiettivo, Arena e Contatore Carte in Mano (con Max raggiungibile) -->
-        <div class="flex items-center gap-1.5">
-          <div class="liquid-pill px-2.5 py-2 rounded-2xl text-[11px] font-black text-white/90 flex items-center gap-1" title="Carte in mano / Limite Massimo">
+          <div class="liquid-pill py-1.5 px-2 rounded-2xl flex items-center justify-center gap-1 text-white/95 font-black text-xs" title="Carte in mano / Max">
             <span>🃏</span>
             <span id="p1-hand-counter">5/7</span>
           </div>
-          <button onclick="UI.toggleObjectiveModal()" class="liquid-pill p-2.5 rounded-2xl text-amber-300 active:scale-95 transition">
-            <i data-lucide="trophy" class="w-4 h-4"></i>
+        </div>
+
+        <!-- Riga 2: Tasti Obiettivo e Campo di Battaglia allungati a pareggiare esattamente la riga sopra -->
+        <div class="flex items-center gap-1.5 w-full">
+          <button onclick="UI.toggleObjectiveModal()" class="liquid-pill flex-1 py-2 px-3 rounded-2xl text-amber-300 flex items-center justify-center gap-1.5 text-[11px] font-black active:scale-95 transition">
+            <i data-lucide="trophy" class="w-4 h-4 shrink-0"></i>
+            <span>Obiettivo</span>
           </button>
-          <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill p-2.5 rounded-2xl text-cyan-300 active:scale-95 transition">
-            <i data-lucide="map" class="w-4 h-4"></i>
+          <button id="arena-badge" onclick="UI.toggleArenaModal()" class="liquid-pill flex-1 py-2 px-3 rounded-2xl text-cyan-300 flex items-center justify-center gap-1.5 text-[11px] font-black active:scale-95 transition">
+            <i data-lucide="map" class="w-4 h-4 shrink-0"></i>
+            <span>Arena</span>
           </button>
         </div>
+
+        <!-- Badge dei Buff Temporanei Attivi su P1 -->
+        <div id="p1-buff-row" class="flex flex-wrap justify-end gap-1 min-h-[18px] w-full"></div>
       </div>
 
         <!-- In basso a destra: Artwork del mio Leader (Cliccabile per dettagli + Uso abilità) -->
@@ -323,7 +333,5 @@
   <script src="database.js"></script>
   <script src="engine.js"></script>
   <script src="multiplayer.js"></script>
-</body>
-</html>
 </body>
 </html>

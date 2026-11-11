@@ -601,13 +601,26 @@ const DB = {
   },
 
   // 3. GENERATORE PROCEDURALE DI ARTWORK SVG UNICO PER CIASCUNA DELLE 160 CARTE
+  // Converte il nome della carta in un nome file pulito (es. "Ulf Pelle d'Orso" -> "ulf_pelle_d_orso")
+  formatCardFileName(name) {
+    return name
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "") // Rimuove gli accenti (è -> e, ù -> u)
+      .replace(/[^a-z0-9]+/g, "_")     // Sostituisce spazi, apostrofi e simboli con _
+      .replace(/^_+|_+$/g, "");        // Rimuove eventuali _ iniziali o finali
+  },
+
+  // 3. CARICATORE IMMAGINI CARTE (/img/<nome_fazione>/<nome_carta>.jpg) CON FALLBACK SVG
   generateUniqueCardArt(cardName, factionId, cardType) {
+    const fileName = this.formatCardFileName(cardName);
+    const imgPath = `img/${factionId}/${fileName}.jpg`;
+
+    // Calcolo hash per il fallback vettoriale se il file .jpg non è ancora presente nella cartella
     let hash = 0;
     for (let i = 0; i < cardName.length; i++) {
       hash = cardName.charCodeAt(i) + ((hash << 5) - hash);
     }
-    const h1 = Math.abs(hash % 360);
-    const h2 = (h1 + 55) % 360;
     const cx = 30 + Math.abs((hash >> 3) % 40);
     const cy = 25 + Math.abs((hash >> 5) % 35);
     const r1 = 14 + Math.abs((hash >> 2) % 18);
@@ -621,22 +634,29 @@ const DB = {
     }[factionId] || ["#ffffff", "#94a3b8", "#e2e8f0"];
 
     return `
-      <svg viewBox="0 0 100 84" class="w-full h-16 rounded-xl overflow-hidden bg-black/40 border border-white/15 shrink-0">
-        <defs>
-          <radialGradient id="grad_${Math.abs(hash)}" cx="50%" cy="50%" r="70%">
-            <stop offset="0%" stop-color="${palette[0]}" stop-opacity="0.65"/>
-            <stop offset="100%" stop-color="#090d16" stop-opacity="0.95"/>
-          </radialGradient>
-        </defs>
-        <rect width="100" height="84" fill="url(#grad_${Math.abs(hash)})"/>
-        <circle cx="${cx}" cy="${cy}" r="${r1}" fill="${palette[1]}" fill-opacity="0.35" />
-        <polygon points="${polyPoints}" fill="none" stroke="${palette[2]}" stroke-width="1.6" stroke-opacity="0.7" />
-        <circle cx="50" cy="42" r="${8 + (Math.abs(hash) % 10)}" fill="none" stroke="${palette[0]}" stroke-width="1.2" stroke-dasharray="4 2"/>
-        ${cardType === "action" 
-          ? `<path d="M25,42 Q50,${10 + (Math.abs(hash)%25)} 75,42 T25,42" fill="none" stroke="${palette[2]}" stroke-width="1.8"/>`
-          : `<line x1="20" y1="${20 + (Math.abs(hash)%40)}" x2="80" y2="${60 - (Math.abs(hash)%40)}" stroke="${palette[2]}" stroke-width="1.5" stroke-opacity="0.5"/>`
-        }
-      </svg>
+      <div class="w-full h-16 rounded-xl overflow-hidden bg-black/40 border border-white/15 shrink-0 relative">
+        <img src="${imgPath}" 
+             alt="${cardName}" 
+             loading="lazy"
+             class="w-full h-full object-cover object-center relative z-10"
+             onerror="this.style.display='none'; this.nextElementSibling.style.display='block';" />
+        <svg viewBox="0 0 100 84" style="display:none;" class="w-full h-full absolute inset-0 z-0">
+          <defs>
+            <radialGradient id="grad_${Math.abs(hash)}" cx="50%" cy="50%" r="70%">
+              <stop offset="0%" stop-color="${palette[0]}" stop-opacity="0.65"/>
+              <stop offset="100%" stop-color="#090d16" stop-opacity="0.95"/>
+            </radialGradient>
+          </defs>
+          <rect width="100" height="84" fill="url(#grad_${Math.abs(hash)})"/>
+          <circle cx="${cx}" cy="${cy}" r="${r1}" fill="${palette[1]}" fill-opacity="0.35" />
+          <polygon points="${polyPoints}" fill="none" stroke="${palette[2]}" stroke-width="1.6" stroke-opacity="0.7" />
+          <circle cx="50" cy="42" r="${8 + (Math.abs(hash) % 10)}" fill="none" stroke="${palette[0]}" stroke-width="1.2" stroke-dasharray="4 2"/>
+          ${cardType === "action" 
+            ? `<path d="M25,42 Q50,${10 + (Math.abs(hash)%25)} 75,42 T25,42" fill="none" stroke="${palette[2]}" stroke-width="1.8"/>`
+            : `<line x1="20" y1="${20 + (Math.abs(hash)%40)}" x2="80" y2="${60 - (Math.abs(hash)%40)}" stroke="${palette[2]}" stroke-width="1.5" stroke-opacity="0.5"/>`
+          }
+        </svg>
+      </div>
     `;
   },
 
