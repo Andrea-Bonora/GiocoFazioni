@@ -989,7 +989,7 @@ const UI = {
 
     view.innerHTML = `<div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">${clashHTML}</div>`;
     actions.innerHTML = `
-      <button id="btn-confirm-clash" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider ${alreadyVoted ? "opacity-50 pointer-events-none" : ""}">
+      <button id="btn-confirm-clash" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider pointer-events-none ${alreadyVoted ? "opacity-50" : ""}">
         Conferma (${(GameState.clashConfirmVotes || []).length}/${totalHumans}) ➔
       </button>
     `;
@@ -997,7 +997,12 @@ const UI = {
     document.getElementById("glass-modal").classList.remove("hidden");
     lucide.createIcons();
 
-    document.getElementById("btn-confirm-clash").onclick = (e) => {
+    const btnEl = document.getElementById("btn-confirm-clash");
+    if (btnEl && !alreadyVoted) {
+      setTimeout(() => btnEl.classList.remove("pointer-events-none"), 250);
+    }
+
+    btnEl.onclick = (e) => {
       const btn = e.currentTarget;
       btn.disabled = true;
       btn.classList.add("opacity-50", "pointer-events-none");
@@ -1108,7 +1113,7 @@ const UI = {
     if (!modal) {
       if (GameState.lastRenderedModalId !== null) {
         GameState.lastRenderedModalId = null;
-        this.closeModal();
+        this.closeModal(true);
       }
       return;
     }
@@ -1220,8 +1225,14 @@ const UI = {
     document.getElementById("glass-modal").classList.remove("hidden");
   },
 
-  closeModal() {
+  closeModal(forceClose = false) {
     this.clearModalSwipeListeners();
+    // Se un giocatore stava chiudendo l'ispezione di una carta ma nel frattempo è apparso uno scontro, mostra lo scontro!
+    if (!forceClose && GameState.sharedModalState) {
+      GameState.lastRenderedModalId = null;
+      this.syncSharedModalOnClient();
+      return;
+    }
     document.getElementById("glass-modal").classList.add("hidden");
   },
 
@@ -1389,7 +1400,9 @@ const Engine = {
         xylarBonusDif: 0,
         nyxCopiedLeader: null,
         nyxLastCopiedLeaderId: null,
-        nyxCopiedTargetAwakened: false
+        nyxCopiedTargetAwakened: false,
+        wonAnyClash: false,
+        copiedFactions: []
       };
     });
 
@@ -1853,7 +1866,7 @@ const Engine = {
     }
     GameState.sharedModalState = null;
     GameState.lastRenderedModalId = null;
-    UI.closeModal();
+    UI.closeModal(true);
     UI.renderTable();
     Multiplayer.broadcastFullStateFromHost();
 
@@ -2299,7 +2312,8 @@ const Engine = {
       appliedCombatEffects.push(`${defCard.name}: DIF pari a ${difVal}`);
     }
     if (atkCard.effectCode === "mut_primordial" && defCard) {
-      const bonus = Math.floor((Number(defCard.atk) || 4) / 2);
+      const enemyAtkNum = defCard.atk === "?" ? 2 : Number(defCard.atk) || 4;
+      const bonus = Math.floor((Number(enemyAtkNum) || 4) / 2);
       atkVal += bonus;
       atkEff = defEff; // Copia l'effetto della carta nemica
       atkCopiedEnemy = true;
@@ -2660,6 +2674,15 @@ const Engine = {
       }
     }
 
+    // Fuori dal blocco defCard (controlla sempre se il difensore ha subito 0 danni complessivi)
+    if (!defCard && damage === 0 && defender.olafTauntActive) {
+      defender.olafTauntActive = false;
+      this.gainPc(defender, 2);
+      appliedCombatEffects.push(`Olaf: Provocazione subita a 0 danni (+2 PC)`);
+    } else if (defender.olafTauntActive && defCard) {
+      defender.olafTauntActive = false;
+    }
+
     if (atkEff === "mag_archmage") {
       attacker.pc = 5;
       this.drawCards(attacker, 1);
@@ -2710,13 +2733,15 @@ const Engine = {
       </div>
     `;
 
+    // FIX: Azzera SEMPRE i voti dello scontro precedente prima di aprire e sincronizzare il nuovo scontro!
+    GameState.clashConfirmVotes = [];
+
     GameState.sharedModalState = {
       id: "clash_" + Date.now(),
       type: "CLASH_CONFIRM",
       html: clashHTML
     };
     GameState.lastRenderedModalId = GameState.sharedModalState.id;
-    Multiplayer.broadcastFullStateFromHost();
 
     UI.showClashConfirmModal(clashHTML, () => {
       if (GameState.gameOver) return;
@@ -2730,6 +2755,8 @@ const Engine = {
       this.advanceTurn(defenderIdx);
       Multiplayer.broadcastFullStateFromHost();
     });
+
+    Multiplayer.broadcastFullStateFromHost();
   },
 
   registerClashConfirmation(slotIdx, localCallback = null) {
@@ -2739,7 +2766,7 @@ const Engine = {
     if (btn) btn.textContent = `Conferma (${GameState.clashConfirmVotes.length}/${totalHumans}) ➔`;
 
     if (GameState.clashConfirmVotes.length >= totalHumans) {
-      UI.closeModal();
+      UI.closeModal(true);
       if (localCallback) {
         localCallback();
       } else {
@@ -2793,7 +2820,7 @@ const Engine = {
     if (btn) btn.textContent = `Vai al Nuovo Round (${GameState.roundEndVotes.length}/${totalHumans}) ➔`;
 
     if (GameState.roundEndVotes.length >= totalHumans) {
-      UI.closeModal();
+      UI.closeModal(true);
       if (localCallback) localCallback();
       else this.proceedToNewRoundScreen();
     } else {
@@ -2810,7 +2837,7 @@ const Engine = {
     if (GameState.newRoundVotes.length >= totalHumans) {
       GameState.sharedModalState = null;
       GameState.lastRenderedModalId = null;
-      UI.closeModal();
+      UI.closeModal(true);
       const firstIdx = GameState.activePlayerIndex;
       UI.setPersistentStatus(`È il turno di <b>${GameState.players[firstIdx].name}</b>`);
       UI.renderTable();
@@ -2922,6 +2949,8 @@ const Engine = {
       `;
     });
 
+    GameState.roundEndVotes = [];
+
     GameState.sharedModalState = {
       id: "round_end_" + Date.now(),
       type: "ROUND_END_SUMMARY",
@@ -2983,6 +3012,8 @@ const Engine = {
     this.assignNyxCopyForRound();
     this.takeRoundStartSnapshot();
     UI.renderTable();
+
+    GameState.newRoundVotes = [];
 
     GameState.sharedModalState = {
       id: "round_new_" + Date.now(),
