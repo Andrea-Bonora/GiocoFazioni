@@ -600,7 +600,8 @@ const UI = {
       }
     } else if (fromHand && GameState.activePlayerIndex === me.index && !GameState.waitingForDefenseFromP1 && card.type === "action") {
       extraBtn = `<button onclick="UI.closeModal(); Engine.initiateActionPlay(${me.index}, '${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Usa Azione</button>`;
-    } else if (fromHand && GameState.activePlayerIndex === me.index && !GameState.waitingForDefenseFromP1 && card.type === "creature" && !GameState.slotAtkCard) {
+    } else if (fromHand && GameState.activePlayerIndex === me.index && !GameState.waitingForDefenseFromP1 && card.type === "creature" && !GameState.slotAtkCard && Engine.hasValidAttackTarget(me.index)) {
+      // Il pulsante compare solo se esiste almeno un avversario valido da attaccare
       extraBtn = `<button onclick="UI.closeModal(); Engine.placeCardInAtkSlot('${card.uid}')" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">Metti in Zona ATK</button>`;
     } else if (fromHand && GameState.waitingForDefenseFromP1 && card.type === "creature") {
       extraBtn = `<button onclick="UI.closeModal(); Engine.placeCardInDifSlot('${card.uid}')" class="liquid-btn-primary px-6 py-2 rounded-xl text-xs font-bold">Difendi in Zona DIF</button>`;
@@ -776,14 +777,14 @@ const UI = {
 
     const bar = document.getElementById("persistent-status-bar");
     if (bar) {
-    if (GameState.slotAtkCard && GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx === null) {
-        const atkPlayer = GameState.players[GameState.currentAttackingPlayerIdx];
-        bar.innerHTML = GameState.currentAttackingPlayerIdx === me.index
-        ? `🎯 Scegli a sinistra l'avversario illuminato da attaccare!`
-        : `⚔️ <b>${atkPlayer.name}</b> sta decidendo chi attaccare...`;
-    } else if (GameState.persistentStatusText) {
-        bar.innerHTML = GameState.persistentStatusText;
-    }
+      if (GameState.slotAtkCard && GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx === null) {
+          const atkPlayer = GameState.players[GameState.currentAttackingPlayerIdx];
+          bar.innerHTML = GameState.currentAttackingPlayerIdx === me.index
+          ? `🎯 Scegli a sinistra l'avversario illuminato da attaccare!`
+          : `⚔️ <b>${atkPlayer.name}</b> sta decidendo chi attaccare...`;
+      } else if (GameState.persistentStatusText) {
+          bar.innerHTML = GameState.persistentStatusText;
+      }
     }
 
     // 1. Colonna Sinistra: Gli altri 3 giocatori
@@ -2074,11 +2075,17 @@ const Engine = {
     return true;
   },
 
+  // true se il giocatore ha almeno un avversario valido da attaccare
+  hasValidAttackTarget(attackerIdx) {
+    return GameState.players.some((_, tIdx) => this.isValidAttackTarget(attackerIdx, tIdx));
+  },
+
   placeCardInAtkSlot(cardUid) {
     const mySlot = Multiplayer.myOnlineSlot || 0;
     const me = GameState.players[mySlot] || GameState.players[0];
     const card = me.hand.find((c) => c.uid === cardUid);
     if (!card || card.type !== "creature") return;
+    if (!this.hasValidAttackTarget(me.index)) return;
     if (me.pc < this.getEffectiveCardCost(me, card)) return;
 
     GameState.slotAtkCard = card;
@@ -2917,7 +2924,7 @@ const Engine = {
       }
       if (p.objective.id === "obj_mut_2" && GameState.round >= 4) {
         const hasTwin = aliveList.some(
-          (o) => o.index !== p.index && ((o.hp === p.hp && Math.abs(o.pc - p.pc) <= 1) || (o.pc === p.pc && Math.abs(o.hp - p.hp) <= 1))
+          (o) => o.index !== p.index && (o.hp === p.hp || o.pc === p.pc)
         );
         if (hasTwin) {
           this.triggerVictory(p, "Obiettivo Simbiosi Totale completato!");
