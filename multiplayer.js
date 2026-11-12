@@ -1,5 +1,5 @@
 /* ============================================================================
-   FAZIONI — MULTIPLAYER P2P ROBUSTO (ISPIRATO A PITCH & PAWNS)
+   FAZIONI — MULTIPLAYER P2P CON RICONNESSIONE & SUBENTRO SLOT IN PARTITA
    ============================================================================ */
 
 const PEER_ICE_CONFIG = {
@@ -19,7 +19,7 @@ const Multiplayer = {
   isOnlineHost: false,
   roomCode: "",
   myPeerId: "",
-  myOnlineSlot: 0, // 0=P1, 1=P2, 2=P3, 3=P4
+  myOnlineSlot: 0,
   peerInstance: null,
   hostConnections: [],
   clientConnection: null,
@@ -29,10 +29,10 @@ const Multiplayer = {
 
   initLobbySlots() {
     this.lobbySlots = {
-      0: { index: 0, label: "Slot P1 (Host)", name: null, occupiedBy: null, isAI: true },
-      1: { index: 1, label: "Slot P2", name: null, occupiedBy: null, isAI: true },
-      2: { index: 2, label: "Slot P3", name: null, occupiedBy: null, isAI: true },
-      3: { index: 3, label: "Slot P4", name: null, occupiedBy: null, isAI: true }
+      0: { index: 0, label: "Slot P1 (Host)", name: null, occupiedBy: null, isAI: true, wasHuman: false },
+      1: { index: 1, label: "Slot P2", name: null, occupiedBy: null, isAI: true, wasHuman: false },
+      2: { index: 2, label: "Slot P3", name: null, occupiedBy: null, isAI: true, wasHuman: false },
+      3: { index: 3, label: "Slot P4", name: null, occupiedBy: null, isAI: true, wasHuman: false }
     };
   },
 
@@ -44,7 +44,6 @@ const Multiplayer = {
     } catch (e) {}
   },
 
-  // 1. CREA STANZA (HOST)
   createOnlineRoom(playerName) {
     const chars = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
     this.roomCode = "FZ" + Array.from({ length: 3 }, () => chars[Math.floor(Math.random() * chars.length)]).join("");
@@ -56,6 +55,7 @@ const Multiplayer = {
     this.lobbySlots[0].occupiedBy = this.myPeerId;
     this.lobbySlots[0].name = playerName;
     this.lobbySlots[0].isAI = false;
+    this.lobbySlots[0].wasHuman = true;
     this.myOnlineSlot = 0;
 
     UI.showLobbyPanel(this.roomCode);
@@ -95,12 +95,12 @@ const Multiplayer = {
     }
   },
 
-  // 2. ENTRA IN STANZA ESISTENTE (CLIENT CON RETRY OGNI 800ms)
   joinOnlineRoom(codeInput, playerName) {
     this.roomCode = codeInput.trim().toUpperCase();
     this.isOnlineHost = false;
     this.networkMode = "ONLINE";
     this.myPeerId = "client_" + Math.random().toString(36).substring(2, 9);
+    this.myOnlineSlot = null;
     this.lobbySlots = {};
 
     UI.showLobbyPanel(this.roomCode);
@@ -158,18 +158,45 @@ const Multiplayer = {
 
   assignPeerToSlot(peerId, playerName, slotIdx) {
     if (!this.lobbySlots[slotIdx]) return;
+    const prevOccupant = this.lobbySlots[slotIdx].occupiedBy;
+
+    // Se un giocatore subentra in uno slot già occupato da un vecchio peerId, disconnette il vecchio (Takeover)
+    if (prevOccupant && prevOccupant !== peerId) {
+      const oldW = this.hostConnections.find((w) => w.peerId === prevOccupant);
+      if (oldW && oldW.conn && oldW.conn.open) {
+        try { oldW.conn.send({ type: "KICKED_BY_TAKEOVER", slotIdx }); } catch (e) {}
+        setTimeout(() => { try { oldW.conn.close(); } catch (e) {} }, 150);
+      }
+      this.hostConnections = this.hostConnections.filter((w) => w.peerId !== prevOccupant);
+    }
+
+    // Libera eventuale altro slot precedentemente occupato dallo stesso peerId
     Object.keys(this.lobbySlots).forEach((k) => {
       if (this.lobbySlots[k].occupiedBy === peerId) {
         this.lobbySlots[k].occupiedBy = null;
-        this.lobbySlots[k].name = null;
-        this.lobbySlots[k].isAI = true;
+        if (GameState.currentScreen === "MENU") {
+          this.lobbySlots[k].name = null;
+          this.lobbySlots[k].isAI = true;
+          this.lobbySlots[k].wasHuman = false;
+        }
       }
     });
+
     this.lobbySlots[slotIdx].occupiedBy = peerId;
-    this.lobbySlots[slotIdx].name = playerName;
+    if (playerName) this.lobbySlots[slotIdx].name = playerName;
     this.lobbySlots[slotIdx].isAI = false;
+    this.lobbySlots[slotIdx].wasHuman = true;
+
+    // Se la partita è già in corso, aggiorna il nome del giocatore nel tavolo!
+    if (GameState.players && GameState.players[slotIdx]) {
+      if (playerName) GameState.players[slotIdx].name = playerName;
+      GameState.players[slotIdx].isAI = false;
+    }
+
     this.syncMyIdentity();
     UI.renderLobbySlotsUI();
+    UI.syncDisconnectOverlayUI();
+    if (GameState.currentScreen === "TABLE") UI.renderTable();
   },
 
   syncMyIdentity() {
@@ -178,24 +205,39 @@ const Multiplayer = {
       return;
     }
     const found = Object.keys(this.lobbySlots).find((k) => this.lobbySlots[k].occupiedBy === this.myPeerId);
-    if (found !== undefined) this.myOnlineSlot = Number(found);
+    this.myOnlineSlot = found !== undefined ? Number(found) : null;
+  },
+
+  // Verifica se uno dei giocatori umani partiti nella stanza si è scollegato
+  isRoomMissingPlayers() {
+    if (this.networkMode !== "ONLINE" || GameState.currentScreen === "MENU") return false;
+    return Object.values(this.lobbySlots).some((s) => s.wasHuman && !s.occupiedBy);
   },
 
   getHumanSlotsCount() {
     if (this.networkMode !== "ONLINE") return 1;
-    return Object.values(this.lobbySlots).filter((s) => !!s.occupiedBy).length || 1;
+    return Object.values(this.lobbySlots).filter((s) => s.wasHuman || !!s.occupiedBy).length || 1;
   },
 
   handlePeerDisconnectOnHost(peerId) {
     if (!this.isOnlineHost || !peerId) return;
+    let disconnectedName = null;
     Object.keys(this.lobbySlots).forEach((k) => {
       if (this.lobbySlots[k].occupiedBy === peerId) {
+        disconnectedName = this.lobbySlots[k].name || `P${Number(k) + 1}`;
         this.lobbySlots[k].occupiedBy = null;
-        this.lobbySlots[k].isAI = true;
+        if (GameState.currentScreen === "MENU") {
+          this.lobbySlots[k].isAI = true;
+          this.lobbySlots[k].wasHuman = false;
+        }
       }
     });
     this.hostConnections = this.hostConnections.filter((w) => w.peerId !== peerId);
+    if (disconnectedName && GameState.currentScreen !== "MENU") {
+      UI.setPersistentStatus(`⚠️ <b>${disconnectedName}</b> si è scollegato! Partita in pausa in attesa di riconnessione...`);
+    }
     UI.renderLobbySlotsUI();
+    UI.syncDisconnectOverlayUI();
     this.broadcastFullStateFromHost();
   },
 
@@ -261,17 +303,21 @@ const Multiplayer = {
     if (this.isOnlineHost) {
       if (data.type === "JOIN_REQUEST") {
         const existing = Object.keys(this.lobbySlots).find((k) => this.lobbySlots[k].occupiedBy === data.peerId);
-        if (!existing) {
+        // Se siamo nel menu, assegna automaticamente il primo slot libero; se siamo in partita, mostra il selettore slot!
+        if (!existing && GameState.currentScreen === "MENU") {
           const freeKey = Object.keys(this.lobbySlots).find((k) => !this.lobbySlots[k].occupiedBy);
           if (freeKey !== undefined) {
             this.assignPeerToSlot(data.peerId, data.name || `Giocatore ${Number(freeKey) + 1}`, Number(freeKey));
           }
         }
         UI.renderLobbySlotsUI();
+        UI.syncDisconnectOverlayUI();
         this.broadcastFullStateFromHost();
       } else if (data.type === "CLAIM_SLOT") {
         this.assignPeerToSlot(data.peerId, data.name, data.slotIdx);
         this.broadcastFullStateFromHost();
+      } else if (data.type === "LEAVE_NOTICE") {
+        this.handlePeerDisconnectOnHost(data.peerId);
       } else if (data.type === "CLIENT_ACTION") {
         this.applyClientActionOnHost(data.action, data.peerId, data.slot);
       }
@@ -296,11 +342,15 @@ const Multiplayer = {
         UI.renderTable();
         UI.syncSharedModalOnClient();
       }
+      UI.syncDisconnectOverlayUI();
+    } else if (data.type === "KICKED_BY_TAKEOVER") {
+      this.myOnlineSlot = null;
+      UI.syncDisconnectOverlayUI();
     }
   },
 
   applyClientActionOnHost(act, peerId, slotIdx) {
-    if (!act) return;
+    if (!act || this.isRoomMissingPlayers()) return;
     if (act.kind === "CLAIM_FACTION") {
       Engine.claimFactionForSlot(slotIdx, act.factionId, act.playerName);
     } else if (act.kind === "LOCK_SETUP_CHOICE") {
@@ -314,8 +364,7 @@ const Multiplayer = {
       Engine.registerClashConfirmation(slotIdx);
     } else if (act.kind === "CONFIRM_ROUND_END") {
       Engine.registerRoundEndConfirmation(slotIdx);
-    }
-     else if (act.kind === "CONFIRM_NEW_ROUND") {
+    } else if (act.kind === "CONFIRM_NEW_ROUND") {
       Engine.registerNewRoundConfirmation(slotIdx);
     } else if (act.kind === "PLAY_ACTION_CARD") {
       const p = GameState.players[slotIdx];
@@ -346,3 +395,9 @@ const Multiplayer = {
     this.broadcastFullStateFromHost();
   }
 };
+
+window.addEventListener("beforeunload", () => {
+  if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+    Multiplayer.sendToHost({ type: "LEAVE_NOTICE", peerId: Multiplayer.myPeerId });
+  }
+});

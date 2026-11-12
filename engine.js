@@ -18,6 +18,7 @@ const GameState = {
   newRoundVotes: [],
   skipVotes: [],
   readingTimerInterval: null,
+  pendingActionAfterCallback: null, // Salva la callback post-Carta Azione (così l'AI non si blocca mai quando si clicca Salta!)    
   playerName: "Giocatore 1",
   options: {
     arenasEnabled: true,
@@ -58,6 +59,81 @@ const UI = {
     lucide.createIcons();
     this.renderFactionSelection();
     this.enableScreenLockAndWake();
+    this.setupAppleTouchIconFromSVG();
+  },
+
+  // Converte il Logo SVG delle 4 Fazioni in icona PNG 512x512 per "Aggiungi a schermata Home" su iOS
+  setupAppleTouchIconFromSVG() {
+    const svgEl = document.getElementById("app-logo-svg");
+    if (!svgEl) return;
+    try {
+      const xml = new XMLSerializer().serializeToString(svgEl);
+      const svg64 = btoa(unescape(encodeURIComponent(xml)));
+      const image64 = "data:image/svg+xml;base64," + svg64;
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 512;
+        canvas.height = 512;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, 512, 512);
+        const pngUrl = canvas.toDataURL("image/png");
+        const appleLink = document.getElementById("apple-touch-icon-link");
+        const favLink = document.getElementById("favicon-link");
+        if (appleLink) appleLink.href = pngUrl;
+        if (favLink) favLink.href = pngUrl;
+      };
+      img.src = image64;
+    } catch (e) {}
+  },
+
+  // Mostra il blocco di pausa se un giocatore umano si scollega o se stai rientrando in partita
+  syncDisconnectOverlayUI() {
+    const overlay = document.getElementById("overlay-disconnect-pause");
+    if (!overlay) return;
+    if (Multiplayer.networkMode !== "ONLINE" || GameState.currentScreen === "MENU") {
+      overlay.classList.add("hidden");
+      return;
+    }
+    Multiplayer.syncMyIdentity();
+    const missingAny = Multiplayer.isRoomMissingPlayers();
+    const iHaveNoSlot = Multiplayer.myOnlineSlot === null || Multiplayer.myOnlineSlot === undefined;
+
+    if (missingAny || iHaveNoSlot) {
+      document.getElementById("disconnect-room-code").textContent = Multiplayer.roomCode;
+      const container = document.getElementById("rejoin-slots-container");
+      container.innerHTML = "";
+
+      Object.values(Multiplayer.lobbySlots).forEach((slot) => {
+        // Mostra gli slot che erano umani nella partita
+        if (!slot.wasHuman && GameState.currentScreen === "TABLE") return;
+        const isMine = slot.occupiedBy === Multiplayer.myPeerId;
+        const isTaken = !!slot.occupiedBy && !isMine;
+        const pName = GameState.players?.[slot.index]?.name || slot.name || `Giocatore ${slot.index + 1}`;
+
+        const btn = document.createElement("button");
+        btn.className = `p-3 rounded-2xl border text-left transition ${
+          isMine
+            ? "bg-emerald-500/25 border-emerald-400 text-white"
+            : isTaken
+            ? "bg-white/5 border-amber-400/40 text-white/80"
+            : "bg-amber-500/20 border-amber-400 text-white animate-pulse"
+        }`;
+        btn.innerHTML = `
+          <div class="text-xs font-black">P${slot.index + 1} • ${pName}</div>
+          <div class="text-[10px] font-bold mt-0.5 ${isMine ? "text-emerald-300" : isTaken ? "text-amber-300" : "text-cyan-300"}">
+            ${isMine ? "✓ Tu (Connesso)" : isTaken ? "🔄 Occupato (Tocca per sostituire)" : "⚡ Scollegato (Tocca per entrare)"}
+          </div>
+        `;
+        if (!isMine) {
+          btn.onclick = () => Multiplayer.claimSlot(slot.index);
+        }
+        container.appendChild(btn);
+      });
+      overlay.classList.remove("hidden");
+    } else {
+      overlay.classList.add("hidden");
+    }
   },
 
   enableScreenLockAndWake() {
@@ -202,70 +278,7 @@ const UI = {
     GameState.inspectedHandIndex = null;
   },
 
-  // Modale con Pausa Fissa + Barra di Caricamento Visiva RADDOPPIATA (10.000ms = 10 secondi) + Salta Condiviso
-  showTimedSummaryModal(summaryHTML, durationMs = 10000, onFinishCallback = null) {
-    this.clearModalSwipeListeners();
-    if (GameState.readingTimerInterval) clearInterval(GameState.readingTimerInterval);
-    GameState.skipVotes = [];
-
-    const view = document.getElementById("modal-custom-view");
-    const actions = document.getElementById("modal-actions");
-
-    view.innerHTML = `
-      <div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">
-        ${summaryHTML}
-        <!-- Barra di Caricamento Visiva (Durata Doppia: 10 secondi) -->
-        <div class="w-full max-w-lg h-2.5 bg-black/50 rounded-full overflow-hidden border border-white/20 mt-1">
-          <div id="reading-bar-fill" class="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 reading-progress-fill" style="width: 100%"></div>
-        </div>
-      </div>
-    `;
-
-    const totalHumans = Multiplayer.getHumanSlotsCount();
-    actions.innerHTML = `
-      <button id="btn-skip-timer" class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
-        Salta (${GameState.skipVotes.length}/${totalHumans}) ➔
-      </button>
-    `;
-
-    document.getElementById("glass-modal").classList.remove("hidden");
-    lucide.createIcons();
-
-    const finishNow = () => {
-      if (GameState.readingTimerInterval) {
-        clearInterval(GameState.readingTimerInterval);
-        GameState.readingTimerInterval = null;
-      }
-      this.closeModal();
-      if (onFinishCallback) onFinishCallback();
-    };
-
-    document.getElementById("btn-skip-timer").onclick = () => {
-      const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (!GameState.skipVotes.includes(mySlot)) GameState.skipVotes.push(mySlot);
-      const btn = document.getElementById("btn-skip-timer");
-      if (btn) btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
-
-      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
-        Multiplayer.sendClientAction({ kind: "VOTE_SKIP_SUMMARY" });
-      } else if (GameState.skipVotes.length >= totalHumans) {
-        finishNow();
-      }
-    };
-
-    let elapsed = 0;
-    const step = 100;
-    GameState.readingTimerInterval = setInterval(() => {
-      elapsed += step;
-      const pct = Math.max(0, 100 - (elapsed / durationMs) * 100);
-      const bar = document.getElementById("reading-bar-fill");
-      if (bar) bar.style.width = `${pct}%`;
-
-      if (elapsed >= durationMs || GameState.skipVotes.length >= totalHumans) {
-        finishNow();
-      }
-    }, step);
-  },
+  
 
   // Nasconde i Moduli Espansione e il tasto "Scegli Fazione e Inizia" ai giocatori ospiti (solo l'Host li vede!)
   updateStartButtonState() {
@@ -902,41 +915,96 @@ const UI = {
     lucide.createIcons();
   },
 
-  // Modale di Riepilogo Scontro SENZA barra del tempo: il gioco rimane fermo finché tutti non premono Conferma!
-  showClashConfirmModal(clashHTML, onAllConfirmedCallback = null) {
+  showTimedSummaryModal(summaryHTML, durationMs = 10000, onFinishCallback = null) {
     this.clearModalSwipeListeners();
-    if (GameState.readingTimerInterval) {
-      clearInterval(GameState.readingTimerInterval);
-      GameState.readingTimerInterval = null;
-    }
-    GameState.clashConfirmVotes = [];
-    const totalHumans = Multiplayer.getHumanSlotsCount();
+    if (GameState.readingTimerInterval) clearInterval(GameState.readingTimerInterval);
+    if (onFinishCallback) GameState.pendingActionAfterCallback = onFinishCallback;
 
     const view = document.getElementById("modal-custom-view");
     const actions = document.getElementById("modal-actions");
 
     view.innerHTML = `
       <div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">
-        ${clashHTML}
+        ${summaryHTML}
+        <div class="w-full max-w-lg h-2.5 bg-black/50 rounded-full overflow-hidden border border-white/20 mt-1">
+          <div id="reading-bar-fill" class="h-full bg-gradient-to-r from-cyan-400 to-emerald-400 reading-progress-fill" style="width: 100%"></div>
+        </div>
       </div>
     `;
 
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const mySlot = Multiplayer.myOnlineSlot ?? 0;
+    const alreadyVoted = (GameState.skipVotes || []).includes(mySlot);
+
     actions.innerHTML = `
-      <button id="btn-confirm-clash" class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider">
-        Conferma (0/${totalHumans}) ➔
+      <button id="btn-skip-timer" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider ${alreadyVoted ? "opacity-50 pointer-events-none" : ""}">
+        Salta (${(GameState.skipVotes || []).length}/${totalHumans}) ➔
       </button>
     `;
 
     document.getElementById("glass-modal").classList.remove("hidden");
     lucide.createIcons();
 
-    document.getElementById("btn-confirm-clash").onclick = () => {
-      const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (!GameState.clashConfirmVotes.includes(mySlot)) GameState.clashConfirmVotes.push(mySlot);
-      const btn = document.getElementById("btn-confirm-clash");
-      if (btn) btn.textContent = `Conferma (${GameState.clashConfirmVotes.length}/${totalHumans}) ➔`;
+    document.getElementById("btn-skip-timer").onclick = (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "pointer-events-none");
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        if (!GameState.skipVotes.includes(mySlot)) GameState.skipVotes.push(mySlot);
+        btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
+        Multiplayer.sendClientAction({ kind: "VOTE_SKIP_SUMMARY" });
+      } else {
+        Engine.registerActionSkipVote(mySlot);
+      }
+    };
+
+    let elapsed = 0;
+    const step = 100;
+    GameState.readingTimerInterval = setInterval(() => {
+      if (Multiplayer.isRoomMissingPlayers()) return; // In pausa se qualcuno è scollegato
+      elapsed += step;
+      const pct = Math.max(0, 100 - (elapsed / durationMs) * 100);
+      const bar = document.getElementById("reading-bar-fill");
+      if (bar) bar.style.width = `${pct}%`;
+
+      if (elapsed >= durationMs) {
+        Engine.finishActionSummaryNow();
+      }
+    }, step);
+  },
+
+  showClashConfirmModal(clashHTML, onAllConfirmedCallback = null) {
+    this.clearModalSwipeListeners();
+    if (GameState.readingTimerInterval) {
+      clearInterval(GameState.readingTimerInterval);
+      GameState.readingTimerInterval = null;
+    }
+    const totalHumans = Multiplayer.getHumanSlotsCount();
+    const mySlot = Multiplayer.myOnlineSlot ?? 0;
+    const alreadyVoted = (GameState.clashConfirmVotes || []).includes(mySlot);
+
+    const view = document.getElementById("modal-custom-view");
+    const actions = document.getElementById("modal-actions");
+
+    view.innerHTML = `<div class="flex flex-col items-center gap-2.5 w-full max-w-2xl">${clashHTML}</div>`;
+    actions.innerHTML = `
+      <button id="btn-confirm-clash" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-gold px-10 py-2.5 rounded-xl text-xs font-black uppercase tracking-wider ${alreadyVoted ? "opacity-50 pointer-events-none" : ""}">
+        Conferma (${(GameState.clashConfirmVotes || []).length}/${totalHumans}) ➔
+      </button>
+    `;
+
+    document.getElementById("glass-modal").classList.remove("hidden");
+    lucide.createIcons();
+
+    document.getElementById("btn-confirm-clash").onclick = (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "pointer-events-none");
+
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        if (!GameState.clashConfirmVotes.includes(mySlot)) GameState.clashConfirmVotes.push(mySlot);
+        btn.textContent = `Conferma (${GameState.clashConfirmVotes.length}/${totalHumans}) ➔`;
         Multiplayer.sendClientAction({ kind: "CONFIRM_CLASH" });
       } else {
         Engine.registerClashConfirmation(mySlot, onAllConfirmedCallback);
@@ -944,11 +1012,11 @@ const UI = {
     };
   },
 
-  // SCHERMATA 1 DI FINE ROUND: Mostra solo il Bilancio Risorse del Round appena concluso
   showRoundEndSummaryModal(endedRoundNumber, balanceLines, onConfirmCallback = null) {
     this.clearModalSwipeListeners();
-    GameState.roundEndVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
+    const mySlot = Multiplayer.myOnlineSlot ?? 0;
+    const alreadyVoted = (GameState.roundEndVotes || []).includes(mySlot);
     const view = document.getElementById("modal-custom-view");
 
     const linesHTML = (balanceLines || []).map((line) => `
@@ -965,20 +1033,21 @@ const UI = {
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `
-      <button id="btn-confirm-round-end" class="liquid-btn-primary px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
-        Vai al Nuovo Round (0/${totalHumans}) ➔
+      <button id="btn-confirm-round-end" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-primary px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider ${alreadyVoted ? "opacity-50 pointer-events-none" : ""}">
+        Vai al Nuovo Round (${(GameState.roundEndVotes || []).length}/${totalHumans}) ➔
       </button>
     `;
     document.getElementById("glass-modal").classList.remove("hidden");
     lucide.createIcons();
 
-    document.getElementById("btn-confirm-round-end").onclick = () => {
-      const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (!GameState.roundEndVotes.includes(mySlot)) GameState.roundEndVotes.push(mySlot);
-      const btn = document.getElementById("btn-confirm-round-end");
-      if (btn) btn.textContent = `Vai al Nuovo Round (${GameState.roundEndVotes.length}/${totalHumans}) ➔`;
+    document.getElementById("btn-confirm-round-end").onclick = (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "pointer-events-none");
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        if (!GameState.roundEndVotes.includes(mySlot)) GameState.roundEndVotes.push(mySlot);
+        btn.textContent = `Vai al Nuovo Round (${GameState.roundEndVotes.length}/${totalHumans}) ➔`;
         Multiplayer.sendClientAction({ kind: "CONFIRM_ROUND_END" });
       } else {
         Engine.registerRoundEndConfirmation(mySlot, onConfirmCallback);
@@ -986,11 +1055,11 @@ const UI = {
     };
   },
 
-  // SCHERMATA 2 DI FINE ROUND: Mostra solo il Nuovo Round con i PC e le Carte guadagnate
   showNewRoundModal(roundNumber, firstPlayerName, regenLines, onConfirmCallback = null) {
     this.clearModalSwipeListeners();
-    GameState.newRoundVotes = [];
     const totalHumans = Multiplayer.getHumanSlotsCount();
+    const mySlot = Multiplayer.myOnlineSlot ?? 0;
+    const alreadyVoted = (GameState.newRoundVotes || []).includes(mySlot);
     const view = document.getElementById("modal-custom-view");
 
     const linesHTML = (regenLines || []).map((line) => `
@@ -1010,20 +1079,21 @@ const UI = {
       </div>
     `;
     document.getElementById("modal-actions").innerHTML = `
-      <button id="btn-confirm-round" class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider">
-        Inizia Round ${roundNumber} (0/${totalHumans}) ➔
+      <button id="btn-confirm-round" ${alreadyVoted ? "disabled" : ""} class="liquid-btn-gold px-8 py-2 rounded-xl text-xs font-black uppercase tracking-wider ${alreadyVoted ? "opacity-50 pointer-events-none" : ""}">
+        Inizia Round ${roundNumber} (${(GameState.newRoundVotes || []).length}/${totalHumans}) ➔
       </button>
     `;
     document.getElementById("glass-modal").classList.remove("hidden");
     lucide.createIcons();
 
-    document.getElementById("btn-confirm-round").onclick = () => {
-      const mySlot = Multiplayer.myOnlineSlot || 0;
-      if (!GameState.newRoundVotes.includes(mySlot)) GameState.newRoundVotes.push(mySlot);
-      const btn = document.getElementById("btn-confirm-round");
-      if (btn) btn.textContent = `Inizia Round ${roundNumber} (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
+    document.getElementById("btn-confirm-round").onclick = (e) => {
+      const btn = e.currentTarget;
+      btn.disabled = true;
+      btn.classList.add("opacity-50", "pointer-events-none");
 
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        if (!GameState.newRoundVotes.includes(mySlot)) GameState.newRoundVotes.push(mySlot);
+        btn.textContent = `Inizia Round ${roundNumber} (${GameState.newRoundVotes.length}/${totalHumans}) ➔`;
         Multiplayer.sendClientAction({ kind: "CONFIRM_NEW_ROUND" });
       } else {
         Engine.registerNewRoundConfirmation(mySlot, onConfirmCallback);
@@ -1165,9 +1235,39 @@ const UI = {
     if (p.halfNextAttackDamage) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-purple-500/30 border border-purple-300 text-[9px] font-black text-purple-200">🔮 Dimezza ATK</span>`);
     if (p.shieldSlamActive) badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-amber-500/30 border border-amber-300 text-[9px] font-black text-amber-200">🛡️ Colpo Scudo</span>`);
     if (p.forcedTargetByIdx !== null && p.forcedTargetByIdx !== undefined) {
-      badges.push(`<span class="px-1.5 py-0.5 rounded-md bg-amber-500/30 border border-amber-400 text-[9px] font-black text-amber-200">🎯 Provocato</span>`);
+      badges.push(
+        `<button onclick="event.stopPropagation(); UI.showProvocationDetails(${p.index})" class="px-2 py-0.5 rounded-md bg-amber-500/40 border border-amber-300 text-[9px] font-black text-amber-100 shadow cursor-pointer active:scale-95 transition animate-pulse">
+           🎯 Provocato ℹ️
+         </button>`
+      );
     }
     return badges.join("");
+  },
+
+  showProvocationDetails(playerIdx) {
+    const p = GameState.players[playerIdx];
+    if (!p || p.forcedTargetByIdx === null || p.forcedTargetByIdx === undefined) return;
+    const taunter = GameState.players[p.forcedTargetByIdx];
+    const sourceText = taunter?.olafTauntActive
+      ? `dal potere Leader di <b>${taunter.name} (Olaf Muro-di-Scudi)</b>`
+      : `dalla Carta Azione Vichinga di <b>${taunter?.name || "un avversario"}</b>`;
+
+    const isForcedValid =
+      taunter &&
+      !taunter.eliminated &&
+      p.forbidAttackTarget !== taunter.index &&
+      taunter.attacksTakenThisRound < Engine.getMaxAttacksPerRound() &&
+      (Engine.isFinalDuel1v1() || GameState.lastAttackerIndex !== taunter.index);
+
+    const statusExplanation = isForcedValid
+      ? `⚠️ <b>Obbligo Attivo:</b> Se decidi di attaccare in questo turno, sei <b>obbligato ad attaccare ${taunter.name}</b> (puoi comunque giocare Carte Azione o Passare il turno).`
+      : `✅ <b>Obbligo Decaduto:</b> Sei stato provocato da ${taunter?.name}, ma poiché in questo momento <b>${taunter?.name} è Immune</b> (ha già subito il limite di attacchi nel Round o ti ha appena attaccato), sei libero di attaccare gli altri avversari!`;
+
+    this.showModal(
+      "🎯 STATO PROVOCAZIONE",
+      `${p.name} è Provocato!`,
+      `Sei stato provocato ${sourceText}.\n\n${statusExplanation.replace(/<[^>]*>?/gm, "")}`
+    );
   }
 };
 
@@ -1353,7 +1453,9 @@ const Engine = {
     const id = p.objective.id;
     if (id === "obj_gob_1") return `Progresso attuale: ${p.objectiveProgress || 0}/3 scontri con 5+ danni`;
     if (id === "obj_gob_2") return `Progresso attuale: ${p.objectiveProgress || 0}/4 difese subendo danni`;
-    if (id === "obj_gob_3") return `Stato attuale: Tu hai ${p.pc} PC (Richiesti 0-1 PC sul colpo di grazia)`;
+    if (id === "obj_gob_3") {
+      return `Stato attuale: ${p.objectiveProgress || 0}/2 scontri vinti in attacco restando a 0 PC • (Oppure elimina un nemico avendo 0-1 PC: ora hai ${p.pc} PC)`;
+    }
     if (id === "obj_vik_1") return `Progresso attuale: ${p.objectiveProgress || 0}/4 difese a 0 danni`;
     if (id === "obj_vik_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 attivazioni o eliminazione riflessa`;
     if (id === "obj_vik_3") return `Stato attuale: ${p.pc}/7+ PC • ${p.hand.length}/5+ Carte • Scontro vinto: ${p.wonAnyClash ? "Sì" : "No"}`;
@@ -1712,9 +1814,12 @@ const Engine = {
     UI.renderTable();
     Multiplayer.broadcastFullStateFromHost();
 
-    // Comparsa velocizzata a 400ms (0,4 secondi) invece di 2000ms!
+    // Comparsa velocizzata a 400ms (0,4 secondi)
     setTimeout(() => {
       if (GameState.gameOver) return;
+      GameState.skipVotes = [];
+      GameState.pendingActionAfterCallback = onAfterConfirm || null;
+
       const summaryHTML = `
         <div class="liquid-pill px-4 py-1.5 rounded-2xl border border-amber-400/50 text-xs font-black uppercase tracking-wider text-amber-300 shadow-lg">
           ✨ ${player.name} gioca ${card.name}
@@ -1735,17 +1840,28 @@ const Engine = {
         durationMs: 10000
       };
       GameState.lastRenderedModalId = GameState.sharedModalState.id;
-      Multiplayer.broadcastFullStateFromHost();
 
-      UI.showTimedSummaryModal(summaryHTML, 10000, () => {
-        if (GameState.gameOver) return;
-        GameState.sharedModalState = null;
-        GameState.lastRenderedModalId = null;
-        UI.renderTable();
-        Multiplayer.broadcastFullStateFromHost();
-        if (onAfterConfirm) onAfterConfirm();
-      });
+      UI.showTimedSummaryModal(summaryHTML, 10000, onAfterConfirm);
+      Multiplayer.broadcastFullStateFromHost();
     }, 400);
+  },
+
+  finishActionSummaryNow() {
+    if (GameState.readingTimerInterval) {
+      clearInterval(GameState.readingTimerInterval);
+      GameState.readingTimerInterval = null;
+    }
+    GameState.sharedModalState = null;
+    GameState.lastRenderedModalId = null;
+    UI.closeModal();
+    UI.renderTable();
+    Multiplayer.broadcastFullStateFromHost();
+
+    const cb = GameState.pendingActionAfterCallback;
+    GameState.pendingActionAfterCallback = null;
+    if (cb && !GameState.gameOver) {
+      cb();
+    }
   },
 
   registerActionSkipVote(slotIdx) {
@@ -1753,16 +1869,12 @@ const Engine = {
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const btn = document.getElementById("btn-skip-timer");
     if (btn) btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
+
     if (GameState.skipVotes.length >= totalHumans) {
-      if (GameState.readingTimerInterval) {
-        clearInterval(GameState.readingTimerInterval);
-        GameState.readingTimerInterval = null;
-      }
-      GameState.sharedModalState = null;
-      GameState.lastRenderedModalId = null;
-      UI.closeModal();
+      this.finishActionSummaryNow();
+    } else {
+      Multiplayer.broadcastFullStateFromHost();
     }
-    Multiplayer.broadcastFullStateFromHost();
   },
 
   activateLeaderSkill(playerIdx) {
