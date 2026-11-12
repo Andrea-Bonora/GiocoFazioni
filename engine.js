@@ -2742,6 +2742,8 @@ const Engine = {
     };
     GameState.lastRenderedModalId = GameState.sharedModalState.id;
 
+    GameState.clashConfirmVotes = [];
+
     UI.showClashConfirmModal(clashHTML, () => {
       if (GameState.gameOver) return;
       GameState.sharedModalState = null;
