@@ -983,6 +983,7 @@ const UI = {
     const totalHumans = Multiplayer.getHumanSlotsCount();
     const mySlot = Multiplayer.myOnlineSlot ?? 0;
     const alreadyVoted = (GameState.clashConfirmVotes || []).includes(mySlot);
+    //const alreadyVoted = false; //FIX TEMPORANEO
 
     const view = document.getElementById("modal-custom-view");
     const actions = document.getElementById("modal-actions");
@@ -2168,6 +2169,7 @@ const Engine = {
     Multiplayer.broadcastFullStateFromHost();
 
     setTimeout(() => {
+      GameState.clashConfirmVotes = [];
       let defCard = null;
       if (defender.isAI) {
         const affordableDefenders = defender.hand.filter(
@@ -2732,9 +2734,6 @@ const Engine = {
         ${effectsHTML}
       </div>
     `;
-
-    // FIX: Azzera SEMPRE i voti dello scontro precedente prima di aprire e sincronizzare il nuovo scontro!
-    GameState.clashConfirmVotes = [];
 
     GameState.sharedModalState = {
       id: "clash_" + Date.now(),
