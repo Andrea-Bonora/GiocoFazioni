@@ -84,57 +84,70 @@ const DB = {
         {
           id: "obj_gob_1",
           name: "Furia Cieca",
-          desc: "Vinci se riesci a infliggere 5 o più danni diretti agli HP in un singolo scontro per 2 volte nella partita."
+          desc: "Vinci se riesci a infliggere 5 o più danni diretti agli HP in un singolo scontro per 3 volte nella partita."
         },
         {
           id: "obj_gob_2",
           name: "Carne da Macello",
-          desc: "Vinci se subisci danni durante le tue difese per 3 volte nella partita e resti in vita."
+          desc: "Vinci se subisci danni durante le tue difese per 4 volte nella partita e resti in vita."
         },
         {
           id: "obj_gob_3",
           name: "Bancarotta del Sangue",
-          desc: "Vinci se elimini un avversario (0 HP) in un momento in cui tu hai esattamente 0 PC."
+          desc: "Vinci se elimini un avversario con 0 o 1 PC, oppure se vinci 2 scontri in attacco restando a 0 PC."
         }
       ],
       leaders: [
         {
           id: "ldr_zarok",
           name: "Zarok il Sanguinario",
-          threshold: 6,
+          threshold: 5,
           baseDesc: "Attiva (1/Round): Paga 2 HP -> La tua Creatura attaccante ottiene +3 ATK.",
-          awakenedDesc: "RISVEGLIO (≤6 HP): Attiva (1/Round): +3 ATK gratis in attacco; se fa danno agli HP ti curi di 1 HP.",
+          awakenedDesc: "RISVEGLIO (≤5 HP): Attiva (1/Round): +3 ATK gratis in attacco; se fa danno agli HP ti curi di 1 HP.",
           skillType: "active"
         },
         {
           id: "ldr_grim",
           name: "Grim Mercante di Rottami",
-          threshold: 6,
+          threshold: 5,
           baseDesc: "Passiva: Ogni volta che subisci danni agli HP (anche dalle tue carte), guadagni +1 PC.",
-          awakenedDesc: "RISVEGLIO (≤6 HP): Passiva: Guadagni +1 PC quando subisci danni e riduci ogni danno subito di 1 (min. 1).",
+          awakenedDesc: "RISVEGLIO (≤5 HP): Passiva: Guadagni +1 PC quando subisci danni e riduci ogni danno subito di 1 (min. 1).",
           skillType: "passive"
         },
         {
           id: "ldr_squik",
           name: "Squik l'Alchimista Pazzo",
           threshold: 6,
-          baseDesc: "Attiva (1/Round): Scarta 1 carta per pescarne 2 (subisci 1 danno se peschi un'Azione).",
+          baseDesc: "Attiva (1/Round): Scarta 1 carta per pescarne 2, subisci però 1 danno.",
           awakenedDesc: "RISVEGLIO (≤6 HP): Attiva (1/Round): Pesca 2 carte, scartane 1, guadagni +1 PC e non subisci danni.",
           skillType: "active"
         }
       ],
       archetypes: [
+        // CREATURE GOBLIN (26)
         {
           type: "creature", cost: 1, atk: 3, dif: 1, shift: false,
-          effectCode: "gob_kamikaze",
+          effectCode: "gob_kamikaze_hp",
           effectText: "Attacco: Se infligge almeno 1 danno agli HP nemici, subisci 1 danno diretto.",
-          names: ["Sgorbio Esplosivo", "Recluta Kamikaze", "Fiondatore Pazzo", "Corridore delle Mine"]
+          names: ["Sgorbio Esplosivo", "Recluta Kamikaze"]
+        },
+        {
+          type: "creature", cost: 1, atk: 3, dif: 1, shift: false,
+          effectCode: "gob_kamikaze_pc",
+          effectText: "Attacco: Se infligge almeno 1 danno agli HP nemici, perdi 1 PC.",
+          names: ["Fiondatore Pazzo", "Corridore delle Mine"]
         },
         {
           type: "creature", cost: 2, atk: 4, dif: 1, shift: false,
-          effectCode: "gob_raider",
+          effectCode: "gob_raider_pc",
           effectText: "Attacco: Se infligge danno agli HP nemici, rubi 1 PC al bersaglio.",
-          names: ["Predone Ingozzato", "Ladruncolo di Rame", "Tagliaborse Veloce", "Sciacallo delle Grotte"]
+          names: ["Ladruncolo di Rame", "Tagliaborse Veloce"]
+        },
+        {
+          type: "creature", cost: 2, atk: 4, dif: 1, shift: false,
+          effectCode: "gob_raider_hp",
+          effectText: "Attacco: Se infligge almeno 3 danni agli HP nemici, rubi 1 HP al bersaglio.",
+          names: ["Predone Ingozzato", "Sciacallo delle Grotte"]
         },
         {
           type: "creature", cost: 2, atk: 3, dif: 2, shift: false,
@@ -144,27 +157,51 @@ const DB = {
         },
         {
           type: "creature", cost: 3, atk: 2, dif: 2, shift: false,
-          effectCode: "gob_bomber",
+          effectCode: "gob_bomber_2",
           effectText: "Difesa: Prima del calcolo danni, infligge 2 danni diretti agli HP dell'attaccante.",
-          names: ["Bombarolo Folle", "Lanciatore di Barili", "Piromane Sghignazzante", "Artificiere Cieco"]
+          names: ["Bombarolo Folle", "Lanciatore di Barili"]
+        },
+        {
+          type: "creature", cost: 3, atk: 2, dif: 3, shift: false,
+          effectCode: "gob_bomber_1_pc",
+          effectText: "Difesa: Prima del calcolo danni, infligge 1 danno diretto e toglie 1 PC all'attaccante.",
+          names: ["Piromane Sghignazzante", "Artificiere Cieco"]
         },
         {
           type: "creature", cost: 3, atk: 5, dif: 1, shift: false,
-          effectCode: "gob_piercer",
+          effectCode: "gob_piercer_2hp",
+          effectText: "Attacco: Paghi 2 HP per ignorare 2 punti di DIF della creatura avversaria.",
+          names: ["Spaccascudi Urlante", "Berserker Tascabile"]
+        },
+        {
+          type: "creature", cost: 4, atk: 5, dif: 1, shift: false,
+          effectCode: "gob_piercer_1hp",
           effectText: "Attacco: Paghi 1 HP per ignorare 2 punti di DIF della creatura avversaria.",
-          names: ["Incursore Zannarotta", "Cavalcalupi Feroce", "Spaccascudi Urlante", "Berserker Tascabile"]
+          names: ["Incursore Zannarotta", "Cavalcalupi Feroce"]
         },
         {
           type: "creature", cost: 4, atk: 4, dif: 4, shift: false,
-          effectCode: "gob_merc",
+          effectCode: "gob_merc_pc",
           effectText: "Combattimento: Se vince lo scontro (fa danno o blocca a 0), rubi 1 PC all'avversario.",
-          names: ["Mercenario Tagliagole", "Bruto Prezzolato", "Aguzzino del Clan", "Cacciatore di Taglie"]
+          names: ["Mercenario Tagliagole", "Bruto Prezzolato"]
         },
         {
-          type: "creature", cost: 6, atk: 8, dif: 3, shift: false,
-          effectCode: "gob_goliath",
+          type: "creature", cost: 4, atk: 3, dif: 3, shift: false,
+          effectCode: "gob_merc_hp",
+          effectText: "Combattimento: Se vince lo scontro (fa danno o blocca a 0), rubi 2 HP all'avversario.",
+          names: ["Aguzzino del Clan", "Cacciatore di Taglie"]
+        },
+        {
+          type: "creature", cost: 6, atk: 8, dif: 4, shift: false,
+          effectCode: "gob_goliath_all",
           effectText: "Combattimento: Quando rivelata, perdi 2 HP.",
-          names: ["Golia delle Caverne", "Troll Incatenato", "Ogre Mutante"]
+          names: ["Golia delle Caverne", "Troll Incatenato"]
+        },
+        {
+          type: "creature", cost: 6, atk: 8, dif: 1, shift: false,
+          effectCode: "gob_goliath_atk",
+          effectText: "Attacco: Quando rivelata in attacco, perdi 2 HP.",
+          names: ["Ogre Mutante"]
         },
         {
           type: "creature", cost: 8, atk: 10, dif: 5, shift: false,
@@ -175,27 +212,81 @@ const DB = {
         // AZIONI GOBLIN (14)
         {
           type: "action", cost: 1, shift: false,
-          effectCode: "act_gob_pact",
+          effectCode: "act_gob_pact_2_2",
           effectText: "Subisci 2 danni agli HP e pesca immediatamente 2 carte.",
-          names: ["Patto di Sangue", "Dito Mozzato", "Roulette Goblin", "Furia Cieca"]
+          names: ["Patto di Sangue", "Dito Mozzato"]
         },
         {
           type: "action", cost: 2, shift: false,
-          effectCode: "act_gob_adrenaline",
-          effectText: "Il tuo prossimo attacco in questo turno ottiene +3 ATK, ma subisci 1 danno a fine turno.",
-          names: ["Adrenalina Tossica", "Funghi Allucinogeni", "Intruglio Esplosivo", "Birra di Fiamma"]
+          effectCode: "act_gob_pact_2_3",
+          effectText: "Subisci 2 danni agli HP e pesca immediatamente 3 carte.",
+          names: ["Roulette Goblin"]
         },
         {
           type: "action", cost: 0, shift: false,
-          effectCode: "act_gob_ritual",
+          effectCode: "act_gob_pact_1_1",
+          effectText: "Subisci 1 danno agli HP e pesca immediatamente 1 carta.",
+          names: ["Furia Cieca"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_gob_adr_atk2_dmg1",
+          effectText: "Il tuo prossimo attacco in questo turno ottiene +2 ATK, ma subisci 1 danno a fine turno.",
+          names: ["Intruglio Esplosivo"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_gob_adr_def2",
+          effectText: "La tua prossima difesa in questo Round ottiene +2 DIF.",
+          names: ["Birra di Fiamma"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_gob_adr_atk2",
+          effectText: "Il tuo prossimo attacco in questo turno ottiene +2 ATK.",
+          names: ["Adrenalina Tossica"]
+        },
+        {
+          type: "action", cost: 1, shift: false,
+          effectCode: "act_gob_adr_atk2_self1",
+          effectText: "Il tuo prossimo attacco in questo turno ottiene +2 ATK, ma subisci 1 danno a fine turno.",
+          names: ["Funghi Allucinogeni"]
+        },
+        {
+          type: "action", cost: 1, shift: false,
+          effectCode: "act_gob_ritual_2_4",
+          effectText: "Subisci 2 danni agli HP. Guadagni immediatamente +4 PC.",
+          names: ["Sacrificio Rituale"]
+        },
+        {
+          type: "action", cost: 0, shift: false,
+          effectCode: "act_gob_ritual_3_4",
           effectText: "Subisci 3 danni agli HP. Guadagni immediatamente +4 PC.",
-          names: ["Sacrificio Rituale", "Carne nel Calderone", "Scintilla Vitale"]
+          names: ["Carne nel Calderone"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_gob_ritual_heal2",
+          effectText: "Recuperi immediatamente +2 HP e guadagni +1 PC.",
+          names: ["Scintilla Vitale"]
         },
         {
           type: "action", cost: 3, shift: true,
-          effectCode: "act_gob_sabotage",
+          effectCode: "act_gob_sab_2pc",
           effectText: "Un avversario perde 2 PC (non puoi attaccarlo in questo turno). [Spostamento]",
-          names: ["Sabotaggio Codardo", "Trappola di Fango", "Sabbia negli Occhi"]
+          names: ["Trappola di Fango"]
+        },
+        {
+          type: "action", cost: 1, shift: true,
+          effectCode: "act_gob_sab_1pc",
+          effectText: "Un avversario perde 1 PC (non puoi attaccarlo in questo turno). [Spostamento]",
+          names: ["Sabotaggio Codardo"]
+        },
+        {
+          type: "action", cost: 2, shift: true,
+          effectCode: "act_gob_sab_2hp",
+          effectText: "Un avversario perde 2 HP (non puoi attaccarlo in questo turno). [Spostamento]",
+          names: ["Sabbia negli Occhi"]
         }
       ]
     },
@@ -216,12 +307,12 @@ const DB = {
         {
           id: "obj_vik_2",
           name: "Contrattacco Letale",
-          desc: "Vinci se elimini un avversario durante il suo turno grazie ai danni riflessi in difesa."
+          desc: "Vinci se infliggi danni riflessi in difesa per 3 volte nella partita, oppure subito se elimini l'attaccante coi danni riflessi."
         },
         {
           id: "obj_vik_3",
           name: "Bottino del Valhalla",
-          desc: "Vinci a fine Round se hai 10 PC, almeno 7 carte in mano e hai vinto almeno 1 scontro nel Round."
+          desc: "Vinci a fine Round se hai almeno 7 PC, almeno 5 carte in mano e hai vinto almeno 1 scontro nella partita."
         }
       ],
       leaders: [
@@ -251,46 +342,83 @@ const DB = {
         }
       ],
       archetypes: [
+        // CREATURE VICHINGHI (26)
         {
           type: "creature", cost: 1, atk: 1, dif: 4, shift: false,
-          effectCode: "vik_shieldbearer",
+          effectCode: "vik_shield_pc",
           effectText: "Difesa: Se blocca completamente il danno (0 danni subiti), guadagni +1 PC.",
-          names: ["Erik lo Scudiero", "Guardia dei Fiordi", "Sentinella di Legno", "Giovane Hirdman"]
+          names: ["Erik lo Scudiero", "Guardia dei Fiordi"]
+        },
+        {
+          type: "creature", cost: 1, atk: 1, dif: 4, shift: false,
+          effectCode: "vik_shield_hp",
+          effectText: "Difesa: Se blocca completamente il danno (0 danni subiti), ti curi di +1 HP.",
+          names: ["Sentinella di Legno", "Giovane Hirdman"]
         },
         {
           type: "creature", cost: 2, atk: 2, dif: 5, shift: false,
-          effectCode: "vik_frost",
+          effectCode: "vik_frost_pc",
           effectText: "Difesa: L'attaccante perde 1 PC.",
-          names: ["Esploratore del Ghiaccio", "Lanciere di Kattegat", "Cacciatore delle Nevi", "Custode della Brina"]
+          names: ["Esploratore del Ghiaccio", "Lanciere di Kattegat"]
+        },
+        {
+          type: "creature", cost: 2, atk: 2, dif: 5, shift: false,
+          effectCode: "vik_frost_atk",
+          effectText: "Difesa: Riduce di 1 l'ATK dell'attaccante e ti cura di 1 HP.",
+          names: ["Cacciatore delle Nevi", "Custode della Brina"]
         },
         {
           type: "creature", cost: 3, atk: 4, dif: 3, shift: false,
-          effectCode: "vik_berserker",
+          effectCode: "vik_berserker_atk",
           effectText: "Attacco: Ottiene +3 ATK (7 ATK) se sei già stato attaccato nel Round o se il bersaglio non ti ha mai attaccato.",
-          names: ["Ulf Pelle d'Orso", "Furia di Midgard", "Spaccacrani Urlante", "Predone Sanguinario"]
+          names: ["Ulf Pelle d'Orso", "Furia di Midgard"]
+        },
+        {
+          type: "creature", cost: 3, atk: 4, dif: 3, shift: false,
+          effectCode: "vik_berserker_heal",
+          effectText: "Attacco: Ottiene +2 ATK (6 ATK) e ti curi di 1 HP se sei già stato attaccato nel Round.",
+          names: ["Spaccacrani Urlante", "Predone Sanguinario"]
         },
         {
           type: "creature", cost: 3, atk: 3, dif: 6, shift: false,
-          effectCode: "vik_huscarl",
+          effectCode: "vik_huscarl_cap2",
           effectText: "Difesa: Non puoi subire più di 2 danni agli HP da questo scontro.",
-          names: ["Huscarl Corazzato", "Veterano della Falange", "Difensore del Passo"]
+          names: ["Huscarl Corazzato", "Veterano della Falange"]
+        },
+        {
+          type: "creature", cost: 3, atk: 2, dif: 6, shift: false,
+          effectCode: "vik_huscarl_cap1",
+          effectText: "Difesa: Non puoi subire più di 1 danno agli HP da questo scontro.",
+          names: ["Difensore del Passo"]
         },
         {
           type: "creature", cost: 4, atk: 3, dif: 7, shift: false,
-          effectCode: "vik_jarl",
+          effectCode: "vik_jarl_refl",
           effectText: "Difesa: Se la DIF supera l'ATK nemico, l'attaccante subisce danni agli HP pari alla differenza.",
-          names: ["Jarl Torstein", "Maestro d'Ascia Reale", "Campione del Muro"]
+          names: ["Jarl Torstein", "Maestro d'Ascia Reale"]
+        },
+        {
+          type: "creature", cost: 4, atk: 4, dif: 6, shift: false,
+          effectCode: "vik_jarl_fixed",
+          effectText: "Difesa: Se subisci 0 danni, infliggi 2 danni riflessi all'attaccante e guadagni +1 PC.",
+          names: ["Campione del Muro"]
         },
         {
           type: "creature", cost: 5, atk: 5, dif: 6, shift: false,
-          effectCode: "vik_runepriest",
+          effectCode: "vik_priest_hp",
           effectText: "Combattimento: Quando riveli questa carta, ti curi immediatamente di 2 HP.",
-          names: ["Sacerdote di Odino", "Saggio delle Pietre", "Mistico di Asgard"]
+          names: ["Sacerdote di Odino", "Saggio delle Pietre"]
+        },
+        {
+          type: "creature", cost: 5, atk: 4, dif: 6, shift: false,
+          effectCode: "vik_priest_mix",
+          effectText: "Combattimento: Quando riveli questa carta, ti curi di 1 HP e guadagni +1 PC.",
+          names: ["Mistico di Asgard"]
         },
         {
           type: "creature", cost: 6, atk: 6, dif: 9, shift: false,
           effectCode: "vik_giant",
-          effectText: "Combattimento: Costa 2 PC in meno (Costo 4) se possiedi 8 o più PC.",
+          effectText: "Combattimento: Costa 2 PC in meno (Costo 4) se possiedi 7 o più PC.",
           names: ["Colosso di Ghiaccio", "Figlio di Ymir", "Titano della Tundra"]
         },
         {
@@ -302,27 +430,51 @@ const DB = {
         // AZIONI VICHINGHI (14)
         {
           type: "action", cost: 1, shift: false,
-          effectCode: "act_vik_shieldbuff",
+          effectCode: "act_vik_buff_3",
           effectText: "La prossima Creatura che usi per difenderti in questo Round ottiene +3 DIF.",
-          names: ["Ferro Battuto", "Incisione Runica", "Saldatura d'Emergenza", "Benedizione del Fabbro"]
-        },
-        {
-          type: "action", cost: 2, shift: false,
-          effectCode: "act_vik_mead",
-          effectText: "Ti curi di 3 HP e peschi 1 carta.",
-          names: ["Corno d'Idromele", "Banchetto del Guerriero", "Riposo del Valoroso"]
-        },
-        {
-          type: "action", cost: 0, shift: true,
-          effectCode: "act_vik_prep",
-          effectText: "Se non attacchi in questo turno, guadagni +1 PC e peschi 1 carta. [Spostamento]",
-          names: ["Attesa Strategica", "Raccogliere le Forze", "Silenzio prima della Tempesta"]
+          names: ["Ferro Battuto", "Incisione Runica"]
         },
         {
           type: "action", cost: 1, shift: false,
-          effectCode: "act_vik_taunt",
-          effectText: "Pesca 1 carta. Scegli un avversario: nel suo prossimo turno in questo Round è obbligato ad attaccare te.",
-          names: ["Insulto Vichingo", "Richiamo del Corno", "Sfida di Sangue"]
+          effectCode: "act_vik_buff_2_heal1",
+          effectText: "La tua prossima difesa ottiene +2 DIF e ti curi subito di 1 HP.",
+          names: ["Saldatura d'Emergenza", "Benedizione del Fabbro"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_vik_mead_3_1",
+          effectText: "Ti curi di 3 HP e peschi 1 carta.",
+          names: ["Corno d'Idromele", "Banchetto del Guerriero"]
+        },
+        {
+          type: "action", cost: 1, shift: false,
+          effectCode: "act_vik_mead_2_pc1",
+          effectText: "Ti curi di 2 HP e guadagni +1 PC.",
+          names: ["Riposo del Valoroso"]
+        },
+        {
+          type: "action", cost: 0, shift: true,
+          effectCode: "act_vik_prep_pc",
+          effectText: "Guadagni +1 PC e peschi 1 carta. [Spostamento]",
+          names: ["Attesa Strategica", "Raccogliere le Forze"]
+        },
+        {
+          type: "action", cost: 0, shift: true,
+          effectCode: "act_vik_prep_hp",
+          effectText: "Ti curi di 1 HP e peschi 1 carta. [Spostamento]",
+          names: ["Silenzio prima della Tempesta"]
+        },
+        {
+          type: "action", cost: 1, shift: false,
+          effectCode: "act_vik_taunt_draw",
+          effectText: "Pesca 1 carta. Scegli un avversario: nel suo prossimo turno è obbligato ad attaccare te.",
+          names: ["Insulto Vichingo", "Richiamo del Corno"]
+        },
+        {
+          type: "action", cost: 1, shift: false,
+          effectCode: "act_vik_taunt_def",
+          effectText: "Ottieni +2 DIF alla prossima difesa. Scegli un avversario: è obbligato ad attaccare te.",
+          names: ["Sfida di Sangue"]
         },
         {
           type: "action", cost: 3, shift: false,
@@ -344,17 +496,17 @@ const DB = {
         {
           id: "obj_mag_1",
           name: "Onniscienza Arcana",
-          desc: "Vinci a fine Round se hai 11 o più carte in mano e almeno 15 HP."
+          desc: "Vinci a fine Round se hai 8 o più carte in mano e almeno 12 HP."
         },
         {
           id: "obj_mag_2",
           name: "Supremazia della Mente",
-          desc: "Vinci se vinci 3 scontri usando Creature con ATK o DIF base inferiore a quello dell'avversario."
+          desc: "Vinci se vinci 3 scontri usando Creature con Costo in PC o statistica base inferiore a quella nemica."
         },
         {
           id: "obj_mag_3",
           name: "Siccità di Mana",
-          desc: "Vinci se alla fine di un Round Globale tutti gli avversari in vita hanno esattamente 0 PC."
+          desc: "Vinci a fine Round (dal Round 3+) se tutti gli avversari in vita hanno 0 o 1 PC (o se hai 5+ PC più di ciascuno)."
         }
       ],
       leaders: [
@@ -384,17 +536,30 @@ const DB = {
         }
       ],
       archetypes: [
+        // CREATURE MAGHI (24)
         {
           type: "creature", cost: 1, atk: 1, dif: 2, shift: false,
-          effectCode: "mag_apprentice",
+          effectCode: "mag_app_pc",
           effectText: "Combattimento: Quando rivelata, guadagni +1 PC (si ripaga da sola).",
-          names: ["Novizio della Torre", "Studioso di Pergamene", "Iniziato del Cristallo", "Custode dei Tomi"]
+          names: ["Novizio della Torre", "Studioso di Pergamene"]
+        },
+        {
+          type: "creature", cost: 1, atk: 1, dif: 2, shift: false,
+          effectCode: "mag_app_draw",
+          effectText: "Combattimento: Quando rivelata, ti curi di 1 HP.",
+          names: ["Iniziato del Cristallo", "Custode dei Tomi"]
         },
         {
           type: "creature", cost: 2, atk: 1, dif: 1, shift: false,
-          effectCode: "mag_mirage",
-          effectText: "Difesa: Annulla l'effetto dell'attaccante e riduce il suo ATK esattamente a 3.",
-          names: ["Doppione Etereo", "Spettro di Fumo", "Proiezione Mentale", "Ombra Ingannatrice"]
+          effectCode: "mag_mirage_3",
+          effectText: "Difesa: Annulla l'effetto dell'attaccante e riduce il suo ATK al massimo a 3.",
+          names: ["Doppione Etereo", "Spettro di Fumo"]
+        },
+        {
+          type: "creature", cost: 2, atk: 2, dif: 2, shift: false,
+          effectCode: "mag_mirage_2",
+          effectText: "Difesa: Riduce l'ATK dell'attaccante di 2 punti.",
+          names: ["Proiezione Mentale", "Ombra Ingannatrice"]
         },
         {
           type: "creature", cost: 3, atk: 3, dif: 3, shift: false,
@@ -417,7 +582,7 @@ const DB = {
         {
           type: "creature", cost: 4, atk: 2, dif: 5, shift: false,
           effectCode: "mag_golem",
-          effectText: "Combattimento: Riduce l'ATK nemico di un valore pari al Costo in PC della carta nemica (max -4).",
+          effectText: "Combattimento: Riduce l'ATK o la DIF nemica di un valore pari al Costo in PC della carta nemica (max -4).",
           names: ["Costrutto Gravitazionale", "Golem degli Specchi", "Sentinella del Paradosso"]
         },
         {
@@ -432,18 +597,30 @@ const DB = {
           effectText: "Combattimento: Annulla l'effetto nemico. Dopo lo scontro riporta i tuoi PC a 5 e peschi 1 carta.",
           names: ["Cronomante Supremo", "Arcimago del Nexus"]
         },
-        // AZIONI MAGHI (16)
+        // AZIONI MAGHI (16 ESATTE -> 24+16 = 40 CARTE)
         {
           type: "action", cost: 1, shift: false,
-          effectCode: "act_mag_meditate",
+          effectCode: "act_mag_meditate_2",
           effectText: "Pesca immediatamente 2 carte.",
-          names: ["Lettura delle Stelle", "Sussurri del Grimorio", "Visione Cristallina", "Studio Proibito"]
+          names: ["Lettura delle Stelle", "Sussurri del Grimorio"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_mag_meditate_3",
+          effectText: "Pesca immediatamente 2 carte e ti curi di 1 HP.",
+          names: ["Visione Cristallina", "Studio Proibito"]
         },
         {
           type: "action", cost: 0, shift: false,
           effectCode: "act_mag_catalyst",
           effectText: "Scarta 1 carta dalla mano per guadagnare immediatamente +2 PC.",
-          names: ["Cristallo di Riserva", "Sacrificio del Tomo", "Distillazione Pura", "Frammento di Leyline"]
+          names: ["Cristallo di Riserva", "Sacrificio del Tomo"]
+        },
+        {
+          type: "action", cost: 0, shift: false,
+          effectCode: "act_mag_catalyst_heal",
+          effectText: "Scarta 1 carta dalla mano per guadagnare +1 PC e +2 HP.",
+          names: ["Distillazione Pura"]
         },
         {
           type: "action", cost: 2, shift: false,
@@ -453,9 +630,15 @@ const DB = {
         },
         {
           type: "action", cost: 2, shift: false,
-          effectCode: "act_mag_bolt",
+          effectCode: "act_mag_bolt_hp",
           effectText: "Scegli un avversario: gli infliggi 2 danni diretti agli HP.",
-          names: ["Fulmine Globulare", "Raggio Disintegrante", "Fiamma Azzurra"]
+          names: ["Fulmine Globulare", "Raggio Disintegrante"]
+        },
+        {
+          type: "action", cost: 2, shift: false,
+          effectCode: "act_mag_bolt_mix",
+          effectText: "Scegli un avversario: gli infliggi 1 danno agli HP e gli togli 1 PC.",
+          names: ["Fiamma Azzurra"]
         },
         {
           type: "action", cost: 3, shift: true,
@@ -477,17 +660,17 @@ const DB = {
         {
           id: "obj_mut_1",
           name: "Specchio Perfetto",
-          desc: "Vinci se elimini un avversario usando una Creatura che ha copiato statistiche o effetto del nemico."
+          desc: "Vinci se vinci 3 scontri usando una Creatura che ha copiato o assorbito tratti nemici (o subito se elimini un nemico con essa)."
         },
         {
           id: "obj_mut_2",
           name: "Simbiosi Totale",
-          desc: "Vinci a fine Round (dal Round 4 in poi) se tu e un avversario avete esattamente gli stessi HP e PC."
+          desc: "Vinci a fine Round (dal Round 4 in poi) se tu e un avversario avete gli stessi HP o gli stessi PC (con scarto max 1 sull'altro)."
         },
         {
           id: "obj_mut_3",
           name: "Ladri di Identità",
-          desc: "Vinci se nella partita riesci a copiare o attivare effetti contro tutte e 3 le altre fazioni."
+          desc: "Vinci se riesci a VINCERE uno scontro in Attacco copiando tratti contro tutte e 3 le altre fazioni."
         }
       ],
       leaders: [
@@ -495,8 +678,8 @@ const DB = {
           id: "ldr_xylar",
           name: "Xylar dai Mille Volti",
           threshold: 7,
-          baseDesc: "Attiva (1/Round): In difesa, paga 1 PC per sostituire la tua Creatura con un'altra dalla mano.",
-          awakenedDesc: "RISVEGLIO (≤7 HP): Sostituisci il difensore a Costo 0 PC e la nuova carta ottiene +2 DIF.",
+          baseDesc: "Attiva (1/Round): In difesa, paga 1 PC per pescare 1 nuova carta e dare +1 DIF alla difesa.",
+          awakenedDesc: "RISVEGLIO (≤7 HP): In difesa a Costo 0 PC peschi 1 carta e la tua difesa ottiene +2 DIF.",
           skillType: "active"
         },
         {
@@ -517,6 +700,7 @@ const DB = {
         }
       ],
       archetypes: [
+        // CREATURE MUTAFORMI (25)
         {
           type: "creature", cost: 1, atk: "?", dif: "?", shift: false,
           effectCode: "mut_larva",
@@ -568,9 +752,15 @@ const DB = {
         // AZIONI MUTAFORMI (15)
         {
           type: "action", cost: 1, shift: true,
-          effectCode: "act_mut_molt",
-          effectText: "Pesca 1 carta e spia una carta avversaria (+1 PC se è Creatura). [Spostamento su 3 copie]",
-          names: ["Cambio di Pelle", "Sguardo Altrui", "Istinto Adattivo", "Evoluzione Forzata"]
+          effectCode: "act_mut_molt_pc",
+          effectText: "Pesca 1 carta e guadagni +1 PC adattandoti all'ambiente. [Spostamento su 3 copie]",
+          names: ["Cambio di Pelle", "Sguardo Altrui"]
+        },
+        {
+          type: "action", cost: 1, shift: true,
+          effectCode: "act_mut_molt_hp",
+          effectText: "Pesca 1 carta e ti curi di +1 HP adattandoti all'ambiente. [Spostamento sulla 1a copia]",
+          names: ["Istinto Adattivo", "Evoluzione Forzata"]
         },
         {
           type: "action", cost: 2, shift: false,
@@ -587,7 +777,7 @@ const DB = {
         {
           type: "action", cost: 1, shift: false,
           effectCode: "act_mut_mirror",
-          effectText: "Al prossimo attacco subito nel Round, riduci il danno di 3 e peschi 1 carta.",
+          effectText: "La tua prossima difesa nel Round ottiene +3 DIF.",
           names: ["Scudo di Mercurio", "Riflesso Liquido", "Mimetismo Difensivo"]
         },
         {
@@ -669,7 +859,7 @@ const DB = {
     faction.archetypes.forEach((arch) => {
       arch.names.forEach((uniqueName, idx) => {
         // Per i Mutaformi, solo le prime 3 copie di Muta Rapida hanno [Spostamento] (parità 3 carte per mazzo)
-        const hasShift = arch.shift && !(factionId === "mutaformi" && idx === 3);
+        const hasShift = arch.shift && !(uniqueName === "Evoluzione Forzata");
         deck.push({
           uid: `${factionId}_${cardCounter++}_${Math.random().toString(36).substring(2, 6)}`,
           faction: factionId,

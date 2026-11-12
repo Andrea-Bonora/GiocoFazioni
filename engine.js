@@ -529,144 +529,6 @@ const UI = {
     `;
   },
 
-  renderTable() {
-    if (!GameState.players || GameState.players.length === 0) return;
-    const mySlot = Multiplayer.myOnlineSlot || 0;
-    const me = GameState.players[mySlot] || GameState.players[0];
-
-    const attackOverlay = document.getElementById("under-attack-overlay");
-    if (attackOverlay) attackOverlay.classList.toggle("hidden", !GameState.waitingForDefenseFromP1);
-
-    const bar = document.getElementById("persistent-status-bar");
-    if (bar) {
-      if (GameState.slotAtkCard && GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx === null) {
-        const atkPlayer = GameState.players[GameState.currentAttackingPlayerIdx];
-        bar.innerHTML = GameState.currentAttackingPlayerIdx === me.index
-          ? `🎯 Scegli a sinistra l'avversario illuminato da attaccare!`
-          : `⚔️ <b>${atkPlayer.name}</b> sta decidendo chi attaccare...`;
-      } else if (GameState.persistentStatusText) {
-        bar.innerHTML = GameState.persistentStatusText;
-      }
-    }
-
-    // 1. Colonna Sinistra: Gli altri 3 giocatori (Illumina i bersagli validi anche quando scegli chi attaccare!)
-    const oppCol = document.getElementById("opponents-col");
-    oppCol.innerHTML = "";
-    const opponents = GameState.players.filter((p) => p.index !== me.index);
-
-    const isSelectingAttackTarget =
-      GameState.activePlayerIndex === me.index &&
-      GameState.slotAtkCard !== null &&
-      GameState.currentDefendingPlayerIdx === null;
-
-    opponents.forEach((opp) => {
-      const isTurn = GameState.activePlayerIndex === opp.index && GameState.currentDefendingPlayerIdx === null;
-      const isBeingAttacked = GameState.currentDefendingPlayerIdx === opp.index;
-      const isImmune = opp.attacksTakenThisRound >= Engine.getMaxAttacksPerRound();
-      const isSelectableActionTarget = GameState.pendingTargetSelection?.validTargets.includes(opp.index);
-      const isSelectableAttackTarget = isSelectingAttackTarget && Engine.isValidAttackTarget(me.index, opp.index);
-
-      let borderClass = "";
-      if (isSelectableActionTarget || isSelectableAttackTarget) borderClass = "target-selectable-glow";
-      else if (isBeingAttacked) borderClass = "status-attacked-red";
-      else if (isTurn) borderClass = "status-turn-green";
-      else if (isImmune) borderClass = "status-immune-yellow";
-
-      const box = document.createElement("div");
-      box.id = `opp-box-${opp.index}`;
-      box.className = `relative liquid-glass panel-${opp.faction} p-2 rounded-2xl flex flex-col justify-between flex-1 cursor-pointer transition ${borderClass} ${
-        opp.eliminated ? "opacity-30 grayscale pointer-events-none" : ""
-      }`;
-
-      box.onclick = () => {
-        if (GameState.pendingTargetSelection) {
-          Engine.handlePendingTargetClick(opp.index);
-        } else if (isSelectingAttackTarget) {
-          Engine.confirmTargetForDraggedAttack(opp.index);
-        } else {
-          this.inspectPlayer(opp);
-        }
-      };
-
-      box.innerHTML = `
-        <div class="flex items-center justify-between text-xs font-black">
-          <span class="truncate">${opp.name} • ${DB.factions[opp.faction].name}</span>
-          <span class="text-[11px] text-white/90">🃏 ${opp.hand.length}/${Engine.getPlayerHandLimit(opp)}</span>
-        </div>
-        <div class="text-[10px] font-bold text-amber-300 truncate">${opp.leader.name}</div>
-        <div class="flex items-center justify-between">
-          <div class="flex items-center gap-2.5 text-xs font-black">
-            <span class="text-rose-300 flex items-center gap-0.5"><i data-lucide="heart" class="w-3.5 h-3.5 fill-current"></i>${opp.hp}</span>
-            <span class="text-cyan-300 flex items-center gap-0.5"><i data-lucide="zap" class="w-3.5 h-3.5 fill-current"></i>${opp.pc}</span>
-          </div>
-          <div class="flex gap-1">${this.buildBuffBadgesHTML(opp)}</div>
-        </div>
-      `;
-      oppCol.appendChild(box);
-    });
-
-    // 2. Zona Centrale Superiore: Solo Nome sopra Zona ATK e DIF
-    this.renderMiniArenaPills();
-    this.renderMiniSlot("slot-attacker", GameState.slotAtkCard, "Zona ATK");
-    this.renderMiniSlot("slot-defender", GameState.slotDifCard, "Zona DIF");
-
-    // 3. Pulsante Centrale ("Passa" sparisce se devi scegliere una carta da scartare!)
-    const passBtn = document.getElementById("btn-pass-turn");
-    if (GameState.pendingDiscardSelection) {
-      passBtn.classList.add("hidden");
-    } else {
-      passBtn.classList.remove("hidden");
-      if (GameState.waitingForDefenseFromP1) {
-        passBtn.textContent = "Subisci (No Difesa)";
-        passBtn.disabled = false;
-        passBtn.classList.remove("opacity-40");
-      } else {
-        passBtn.textContent = "Passa";
-        const canPass = GameState.activePlayerIndex === me.index && GameState.currentDefendingPlayerIdx === null && !GameState.pendingTargetSelection && !GameState.slotAtkCard;
-        passBtn.disabled = !canPass;
-        passBtn.classList.toggle("opacity-40", !canPass);
-      }
-    }
-
-    // 4. Colonna Destra: PV, PC, Carte affiancati + Obiettivo & Arena
-    document.getElementById("p1-hp").textContent = me.hp;
-    document.getElementById("p1-pc").textContent = me.pc;
-    document.getElementById("p1-buff-row").innerHTML = this.buildBuffBadgesHTML(me);
-    document.getElementById("p1-hand-counter").textContent = `${me.hand.length}/${Engine.getPlayerHandLimit(me)}`;
-    document.getElementById("arena-badge").classList.toggle("hidden", !GameState.options.arenasEnabled);
-    document.getElementById("p1-leader-name").textContent = me.leader.name;
-    document.getElementById("my-leader-art").innerHTML = DB.generateUniqueCardArt(me.leader.name, me.faction, "creature").replace("h-16", "h-full");
-
-    // 5. Mano del Giocatore
-    const handContainer = document.getElementById("player-hand");
-    handContainer.innerHTML = "";
-    me.hand.forEach((card, handIdx) => {
-      const effectiveCost = Engine.getEffectiveCardCost(me, card);
-      const isDiscardCandidate = GameState.pendingDiscardSelection && card.uid !== GameState.pendingDiscardSelection.sourceCardUid;
-      const mini = document.createElement("div");
-      mini.className = `hand-card-mini ${DB.factions[card.faction].cardClass} ${isDiscardCandidate ? "ring-2 ring-amber-300 animate-pulse" : ""}`;
-      mini.onclick = () => this.inspectCard(card, true, handIdx);
-
-      mini.innerHTML = `
-        <div class="absolute inset-0">${card.svgArt.replace("h-16", "h-full")}</div>
-        <span class="absolute top-1 left-1 w-5 h-5 rounded-full bg-cyan-500 border border-white text-[10px] font-black flex items-center justify-center shadow">
-          ${effectiveCost}
-        </span>
-        ${
-          card.type === "creature"
-            ? `<div class="absolute bottom-0 inset-x-0 bg-black/75 px-1.5 py-0.5 flex justify-between text-[10px] font-black">
-                 <span class="text-rose-300">⚔️${card.atk}</span>
-                 <span class="text-sky-300">🛡️${card.dif}</span>
-               </div>`
-            : `<div class="absolute bottom-0 inset-x-0 bg-black/75 py-0.5 text-center text-[9px] font-bold text-amber-300">AZIONE</div>`
-        }
-      `;
-      handContainer.appendChild(mini);
-    });
-
-    lucide.createIcons();
-  },
-
   // Ispezione Carta con Animazione Swipe fluida + Log "<nome_giocatore> sta pensando" + Modalità "Scarta"
   inspectCard(card, fromHand = false, handIdx = null) {
     if (!card) return;
@@ -753,6 +615,11 @@ const UI = {
     const view = document.getElementById("modal-custom-view");
 
     const activeEffects = [];
+
+    if (opp.olafTauntActive) activeEffects.push("🛡️ Provocazione di Olaf attiva");
+    if (opp.leader.id === "ldr_nyx" && opp.nyxCopiedLeader) {
+      activeEffects.push(`🎭 Copia Leader: ${opp.nyxCopiedLeader.name}`);
+    }
     if (isImmune) activeEffects.push("Immune agli attacchi per questo Round");
     if (opp.buffNextAttack > 0) activeEffects.push(`+${opp.buffNextAttack} ATK al prossimo attacco`);
     if (opp.buffNextDefense > 0) activeEffects.push(`+${opp.buffNextDefense} DIF alla prossima difesa`);
@@ -895,7 +762,16 @@ const UI = {
     if (attackOverlay) attackOverlay.classList.toggle("hidden", !iAmWaitingToDefend);
 
     const bar = document.getElementById("persistent-status-bar");
-    if (bar && GameState.persistentStatusText) bar.innerHTML = GameState.persistentStatusText;
+    if (bar) {
+    if (GameState.slotAtkCard && GameState.currentAttackingPlayerIdx !== null && GameState.currentDefendingPlayerIdx === null) {
+        const atkPlayer = GameState.players[GameState.currentAttackingPlayerIdx];
+        bar.innerHTML = GameState.currentAttackingPlayerIdx === me.index
+        ? `🎯 Scegli a sinistra l'avversario illuminato da attaccare!`
+        : `⚔️ <b>${atkPlayer.name}</b> sta decidendo chi attaccare...`;
+    } else if (GameState.persistentStatusText) {
+        bar.innerHTML = GameState.persistentStatusText;
+    }
+    }
 
     // 1. Colonna Sinistra: Gli altri 3 giocatori
     const oppCol = document.getElementById("opponents-col");
@@ -1188,6 +1064,8 @@ const UI = {
       this.showRoundEndSummaryModal(modal.endedRoundNumber, modal.lines, null);
     } else if (modal.type === "NEW_ROUND") {
       this.showNewRoundModal(modal.roundNumber, modal.firstPlayerName, modal.lines, null);
+    } else if (modal.type === "VICTORY") {
+      this.showModal(modal.badge, modal.title, modal.body);
     }
   },
 
@@ -1222,9 +1100,21 @@ const UI = {
     const mySlot = Multiplayer.myOnlineSlot || 0;
     const me = GameState.players[mySlot] || GameState.players[0];
     this.inspectPlayer(me);
-    if (me.leader.skillType === "active" && GameState.activePlayerIndex === me.index && !me.usedLeaderThisRound && !GameState.pendingDiscardSelection) {
+
+    const effLeader = Engine.getEffectiveLeader(me);
+    const isMyTurn = GameState.activePlayerIndex === me.index && !GameState.waitingForDefenseFromP1;
+    const isDefendingWithXylar = effLeader.id === "ldr_xylar" && GameState.waitingForDefenseFromP1;
+
+    if (
+      effLeader.skillType === "active" &&
+      !me.usedLeaderThisRound &&
+      !GameState.pendingDiscardSelection &&
+      (isMyTurn || isDefendingWithXylar)
+    ) {
       document.getElementById("modal-actions").innerHTML = `
-        <button onclick="UI.closeModal(); Engine.activateLeaderSkill(${me.index})" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">Attiva Potere Leader</button>
+        <button onclick="UI.closeModal(); Engine.activateLeaderSkill(${me.index})" class="liquid-btn-gold px-6 py-2 rounded-xl text-xs font-bold">
+          Attiva Potere (${effLeader.name.split(" ")[0]})
+        </button>
         <button onclick="UI.closeModal()" class="liquid-pill px-6 py-2 rounded-xl text-xs font-bold">Chiudi</button>
       `;
     }
@@ -1303,7 +1193,45 @@ const Engine = {
     }
   },
 
+  // Restituisce il Leader effettivo del giocatore (gestisce la copia dinamica di Nyx!)
+  getEffectiveLeader(player) {
+    if (!player) return null;
+    if (player.leader.id === "ldr_nyx" && player.nyxCopiedLeader) {
+      return player.nyxCopiedLeader;
+    }
+    return player.leader;
+  },
+
+  // Controlla se il potere del Leader (o del Leader copiato da Nyx) deve usare la versione Risvegliata
+  isLeaderAwakenedForSkill(player) {
+    if (!player) return false;
+    if (player.leader.id === "ldr_nyx" && player.nyxCopiedLeader) {
+      return player.awakened && !!player.nyxCopiedTargetAwakened;
+    }
+    return !!player.awakened;
+  },
+
+  // All'inizio di ogni Round, Nyx copia un Leader nemico vivo (diverso da quello del round precedente)
+  assignNyxCopyForRound() {
+    GameState.players.forEach((p) => {
+      if (p.eliminated || p.leader.id !== "ldr_nyx") return;
+      let candidates = this.getAlivePlayers().filter(
+        (o) => o.index !== p.index && o.leader.id !== p.nyxLastCopiedLeaderId
+      );
+      if (candidates.length === 0) {
+        candidates = this.getAlivePlayers().filter((o) => o.index !== p.index);
+      }
+      if (candidates.length > 0) {
+        const chosen = candidates[Math.floor(Math.random() * candidates.length)];
+        p.nyxCopiedLeader = chosen.leader;
+        p.nyxLastCopiedLeaderId = chosen.leader.id;
+        p.nyxCopiedTargetAwakened = chosen.awakened;
+      }
+    });
+  },
+
   setupMatch() {
+    GameState.gameOver = false;
     const allFactions = ["goblin", "vichinghi", "maghi", "mutaformi"];
     const usedFactions = Object.values(GameState.setupChoices).map((c) => c.faction);
     if (GameState.selectedFaction && !usedFactions.includes(GameState.selectedFaction)) {
@@ -1348,12 +1276,20 @@ const Engine = {
         usedLeaderThisRound: false,
         actionsPlayedThisTurn: 0,
         wonClashThisRound: false,
+        wonAnyClash: false, // Inizializzato correttamente
+        copiedFactions: [], // Inizializzato come array
         lastDamagedBy: null,
         buffNextAttack: 0,
         buffNextDefense: 0,
         halfNextAttackDamage: false,
         shieldSlamActive: false,
-        forbidAttackTarget: null
+        forbidAttackTarget: null,
+        pendingEndTurnDamage: 0,
+        olafTauntActive: false,
+        xylarBonusDif: 0,
+        nyxCopiedLeader: null,
+        nyxLastCopiedLeaderId: null,
+        nyxCopiedTargetAwakened: false
       };
     });
 
@@ -1372,6 +1308,7 @@ const Engine = {
     GameState.waitingForDefenseFromP1 = false;
 
     this.takeRoundStartSnapshot();
+    this.assignNyxCopyForRound();
     UI.setPersistentStatus(`È il turno di <b>${GameState.players[0].name}</b>`);
     UI.renderTable();
   },
@@ -1407,44 +1344,45 @@ const Engine = {
   },
 
   getPlayerHandLimit(player) {
-    return player.leader.id === "ldr_eldoria" ? (player.awakened ? 9 : 8) : 7;
+    const effLeader = this.getEffectiveLeader(player);
+    const isAwk = this.isLeaderAwakenedForSkill(player);
+    return effLeader.id === "ldr_eldoria" ? (isAwk ? 9 : 8) : 7;
   },
 
   getObjectiveProgressText(p) {
     const id = p.objective.id;
-    if (id === "obj_gob_1") return `Progresso attuale: ${p.objectiveProgress || 0}/2 scontri con 5+ danni`;
-    if (id === "obj_gob_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 difese subendo danni`;
-    if (id === "obj_gob_3") return `Stato attuale: Tu hai ${p.pc}/0 PC richiesti per il colpo di grazia`;
+    if (id === "obj_gob_1") return `Progresso attuale: ${p.objectiveProgress || 0}/3 scontri con 5+ danni`;
+    if (id === "obj_gob_2") return `Progresso attuale: ${p.objectiveProgress || 0}/4 difese subendo danni`;
+    if (id === "obj_gob_3") return `Stato attuale: Tu hai ${p.pc} PC (Richiesti 0-1 PC sul colpo di grazia)`;
     if (id === "obj_vik_1") return `Progresso attuale: ${p.objectiveProgress || 0}/4 difese a 0 danni`;
-    if (id === "obj_vik_2") return `Progresso attuale: ${p.objectiveProgress || 0}/1 eliminazioni per danno riflesso`;
-    if (id === "obj_vik_3") return `Stato attuale: ${p.pc}/10 PC • ${p.hand.length}/7 Carte • Scontro vinto nel Round: ${p.wonClashThisRound ? "Sì" : "No"}`;
-    if (id === "obj_mag_1") return `Stato attuale: ${p.hand.length}/11 Carte in mano • ${p.hp}/15 PV`;
+    if (id === "obj_vik_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 attivazioni o eliminazione riflessa`;
+    if (id === "obj_vik_3") return `Stato attuale: ${p.pc}/7+ PC • ${p.hand.length}/5+ Carte • Scontro vinto: ${p.wonAnyClash ? "Sì" : "No"}`;
+    if (id === "obj_mag_1") return `Stato attuale: ${p.hand.length}/8+ Carte in mano • ${p.hp}/12+ PV`;
     if (id === "obj_mag_2") return `Progresso attuale: ${p.objectiveProgress || 0}/3 scontri vinti in svantaggio stat`;
-    if (id === "obj_mag_3") {
-      const zeroPcEnemies = this.getAlivePlayers().filter((e) => e.index !== p.index && e.pc === 0).length;
-      const totalEnemies = this.getAlivePlayers().length - 1;
-      return `Stato attuale: ${zeroPcEnemies}/${totalEnemies} avversari a 0 PC`;
-    }
-    if (id === "obj_mut_1") return `Progresso attuale: ${p.objectiveProgress || 0}/1 eliminazioni copiando il nemico`;
-    if (id === "obj_mut_2") return `Round attuale: ${GameState.round}/4+ (Richiede stessi PV e PC di un nemico a fine Round)`;
-    if (id === "obj_mut_3") return `Progresso attuale: ${(p.copiedFactions || []).length}/3 Fazioni copiate`;
+    if (id === "obj_mag_3") return `Stato attuale: Avversari a 0-1 PC`;
+    if (id === "obj_mut_1") return `Progresso attuale: ${p.objectiveProgress || 0}/3 vittorie copiando tratti nemici`;
+    if (id === "obj_mut_2") return `Round attuale: ${GameState.round}/4+ (Richiede stessi PV o PC di un nemico)`;
+    if (id === "obj_mut_3") return `Progresso attuale: ${(p.copiedFactions || []).length}/3 Fazioni sconfitte con copia in attacco`;
     return `Progresso attuale: ${p.objectiveProgress || 0}`;
   },
 
   getEffectiveCardCost(player, card) {
     let cost = card.cost;
+    const effLeader = this.getEffectiveLeader(player);
+    const isAwk = this.isLeaderAwakenedForSkill(player);
+
     if (card.type === "action") {
-      if (player.leader.id === "ldr_eldoria" && player.actionsPlayedThisTurn === 0) {
-        cost -= player.awakened ? 2 : 1;
+      if (effLeader.id === "ldr_eldoria" && player.actionsPlayedThisTurn === 0) {
+        cost -= isAwk ? 2 : 1;
       }
       if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.actionDiscount) {
         cost = Math.max(1, cost - 1);
       }
     }
     if (card.type === "creature") {
-      if (player.leader.id === "ldr_vaelen" && player.awakened && card.cost >= 5) cost -= 1;
-      if (player.leader.id === "ldr_ragnar" && player.awakened) cost -= 1;
-      if (card.effectCode === "vik_giant" && player.pc >= 8) cost -= 2;
+      if (effLeader.id === "ldr_vaelen" && isAwk && card.cost >= 5) cost -= 1;
+      if (effLeader.id === "ldr_ragnar" && isAwk) cost -= 1;
+      if (card.effectCode === "vik_giant" && player.pc >= 7) cost -= 2;
     }
     return Math.max(0, cost);
   },
@@ -1467,11 +1405,11 @@ const Engine = {
 
   applyDirectDamage(target, amount, sourcePlayer = null, isDeckOutDamage = false) {
     if (amount <= 0 || target.eliminated) return;
-    if (target.leader.id === "ldr_grim" && target.awakened && amount > 1) amount -= 1;
+    if (this.getEffectiveLeader(target).id === "ldr_grim" && target.awakened && amount > 1) amount -= 1;
 
     target.hp = Math.max(0, target.hp - amount);
     if (sourcePlayer && sourcePlayer.index !== target.index) target.lastDamagedBy = sourcePlayer.index;
-    if (target.leader.id === "ldr_grim" && target.hp > 0) this.gainPc(target, 1);
+    if (this.getEffectiveLeader(target).id === "ldr_grim" && target.hp > 0) this.gainPc(target, 1);
 
     if (GameState.options.awakeningEnabled && !target.awakened && target.hp > 0 && target.hp <= target.leader.threshold) {
       target.awakened = true;
@@ -1481,7 +1419,7 @@ const Engine = {
 
     if (target.hp === 0 && !target.eliminated) {
       target.eliminated = true;
-      if (sourcePlayer && sourcePlayer.objective.id === "obj_gob_3" && sourcePlayer.pc === 0) {
+      if (sourcePlayer && sourcePlayer.objective.id === "obj_gob_3" && sourcePlayer.pc <= 1) {
         this.triggerVictory(sourcePlayer, "Obiettivo Bancarotta del Sangue completato!");
       }
       const doubleBounty = GameState.options.arenasEnabled && GameState.currentArena?.modifier?.doubleBounty;
@@ -1513,11 +1451,13 @@ const Engine = {
   getValidTargetsForAction(player, effectCode) {
     const enemies = this.getAlivePlayers().filter((p) => p.index !== player.index);
     const targetedEffects = [
-      "act_gob_sabotage", "act_vik_taunt", "act_mag_bolt",
-      "act_mag_amnesia", "act_mut_balance", "act_mut_equality"
+      "act_gob_sab_2pc", "act_gob_sab_1pc", "act_gob_sab_2hp",
+      "act_vik_taunt_draw", "act_vik_taunt_def",
+      "act_mag_bolt_hp", "act_mag_bolt_mix", "act_mag_amnesia",
+      "act_mut_balance", "act_mut_equality"
     ];
     if (!targetedEffects.includes(effectCode)) return null;
-    if (effectCode === "act_gob_sabotage" || effectCode === "act_mag_amnesia") {
+    if (effectCode === "act_gob_sab_2pc" || effectCode === "act_gob_sab_1pc" || effectCode === "act_mag_amnesia") {
       const withPc = enemies.filter((e) => e.pc > 0);
       return (withPc.length > 0 ? withPc : enemies).map((e) => e.index);
     }
@@ -1531,7 +1471,6 @@ const Engine = {
     pending.onSelect(targetIdx);
   },
 
-  // Gestisce la scelta manuale della carta da scartare (es. Catalizzatore Magico o Leader Squik)
   confirmManualDiscard(discardedCardUid) {
     const pending = GameState.pendingDiscardSelection;
     if (!pending) return;
@@ -1540,13 +1479,14 @@ const Engine = {
   },
 
   initiateActionPlay(playerIdx, cardUid, onAfterConfirm = null) {
+    if (GameState.gameOver) return;
     const player = GameState.players[playerIdx];
     const card = player.hand.find((c) => c.uid === cardUid);
     if (!card) return;
     const cost = this.getEffectiveCardCost(player, card);
     if (player.pc < cost) return;
 
-    if (!player.isAI && card.effectCode === "act_mag_catalyst") {
+    if (!player.isAI && (card.effectCode === "act_mag_catalyst" || card.effectCode === "act_mag_catalyst_heal")) {
       const otherCards = player.hand.filter((c) => c.uid !== card.uid);
       if (otherCards.length === 0) {
         UI.setPersistentStatus("⚠️ Non hai altre carte in mano da scartare!");
@@ -1594,81 +1534,136 @@ const Engine = {
   },
 
   executeActionCardEffect(player, card, targetIdx = null, onAfterConfirm = null, manualDiscardUid = null) {
+    if (GameState.gameOver) return;
     const cost = this.getEffectiveCardCost(player, card);
     this.gainPc(player, -cost);
     player.hand = player.hand.filter((c) => c.uid !== card.uid);
 
-    if (player.leader.id === "ldr_eldoria" && player.awakened && player.actionsPlayedThisTurn === 0) {
+    if (this.getEffectiveLeader(player).id === "ldr_eldoria" && this.isLeaderAwakenedForSkill(player) && player.actionsPlayedThisTurn === 0) {
       this.healPlayer(player, 1);
     }
     player.actionsPlayedThisTurn++;
 
     const targetEnemy = targetIdx !== null ? GameState.players[targetIdx] : null;
 
-    if (player.faction === "mutaformi" && targetEnemy) {
-      if (!player.copiedFactions) player.copiedFactions = [];
-      if (!player.copiedFactions.includes(targetEnemy.faction)) {
-        player.copiedFactions.push(targetEnemy.faction);
-        if (player.objective.id === "obj_mut_3" && player.copiedFactions.length >= 3) {
-          this.triggerVictory(player, "Obiettivo Ladri di Identità completato!");
-        }
-      }
-    }
-
     switch (card.effectCode) {
-      case "act_gob_pact":
+      case "act_gob_pact_2_2":
         this.applyDirectDamage(player, 2, player);
         this.drawCards(player, 2);
         break;
-      case "act_gob_adrenaline":
-        player.buffNextAttack += 3;
-        this.applyDirectDamage(player, 1, player);
+      case "act_gob_pact_2_3":
+        this.applyDirectDamage(player, 2, player);
+        this.drawCards(player, 3);
         break;
-      case "act_gob_ritual":
+      case "act_gob_pact_1_1":
+        this.applyDirectDamage(player, 1, player);
+        this.drawCards(player, 1);
+        break;
+      case "act_gob_adr_atk2_dmg1":
+      case "act_gob_adr_atk2_self1":
+        player.buffNextAttack += 2;
+        player.pendingEndTurnDamage = (player.pendingEndTurnDamage || 0) + 1;
+        break;
+      case "act_gob_adr_def2":
+        player.buffNextDefense += 2;
+        break;
+      case "act_gob_adr_atk2":
+        player.buffNextAttack += 2;
+        break;
+      case "act_gob_ritual_2_4":
+        this.applyDirectDamage(player, 2, player);
+        this.gainPc(player, 4);
+        break;
+      case "act_gob_ritual_3_4":
         this.applyDirectDamage(player, 3, player);
         this.gainPc(player, 4);
         break;
-      case "act_gob_sabotage":
+      case "act_gob_ritual_heal2":
+        this.healPlayer(player, 2);
+        this.gainPc(player, 1);
+        break;
+      case "act_gob_sab_2pc":
         if (targetEnemy) {
           this.gainPc(targetEnemy, -2);
           player.forbidAttackTarget = targetEnemy.index;
         }
         break;
-      case "act_vik_shieldbuff":
+      case "act_gob_sab_1pc":
+        if (targetEnemy) {
+          this.gainPc(targetEnemy, -1);
+          player.forbidAttackTarget = targetEnemy.index;
+        }
+        break;
+      case "act_gob_sab_2hp":
+        if (targetEnemy) {
+          this.applyDirectDamage(targetEnemy, 2, player);
+          player.forbidAttackTarget = targetEnemy.index;
+        }
+        break;
+      case "act_vik_buff_3":
         player.buffNextDefense += 3;
         break;
-      case "act_vik_mead":
+      case "act_vik_buff_2_heal1":
+        player.buffNextDefense += 2;
+        this.healPlayer(player, 1);
+        break;
+      case "act_vik_mead_3_1":
         this.healPlayer(player, 3);
         this.drawCards(player, 1);
         break;
-      case "act_vik_prep":
+      case "act_vik_mead_2_pc1":
+        this.healPlayer(player, 2);
+        this.gainPc(player, 1);
+        break;
+      case "act_vik_prep_pc":
         this.gainPc(player, 1);
         this.drawCards(player, 1);
         break;
-      case "act_vik_taunt":
+      case "act_vik_prep_hp":
+        this.healPlayer(player, 1);
         this.drawCards(player, 1);
+        break;
+      case "act_vik_taunt_draw":
+        this.drawCards(player, 1);
+        if (targetEnemy) targetEnemy.forcedTargetByIdx = player.index;
+        break;
+      case "act_vik_taunt_def":
+        player.buffNextDefense += 2;
         if (targetEnemy) targetEnemy.forcedTargetByIdx = player.index;
         break;
       case "act_vik_shieldslam":
         player.shieldSlamActive = true;
         break;
-      case "act_mag_meditate":
+      case "act_mag_meditate_2":
         this.drawCards(player, 2);
         break;
+      case "act_mag_meditate_3":
+        this.drawCards(player, 2);
+        this.healPlayer(player, 1);
+        break;
       case "act_mag_catalyst":
-        if (manualDiscardUid) {
-          player.hand = player.hand.filter((c) => c.uid !== manualDiscardUid);
-        } else if (player.hand.length > 0) {
-          player.hand.pop();
-        }
+        if (manualDiscardUid) player.hand = player.hand.filter((c) => c.uid !== manualDiscardUid);
+        else if (player.hand.length > 0) player.hand.pop();
         this.gainPc(player, 2);
+        break;
+      case "act_mag_catalyst_heal":
+        if (manualDiscardUid) player.hand = player.hand.filter((c) => c.uid !== manualDiscardUid);
+        else if (player.hand.length > 0) player.hand.pop();
+        this.gainPc(player, 1);
+        this.healPlayer(player, 2);
         break;
       case "act_mag_barrier":
         this.healPlayer(player, 1);
         player.halfNextAttackDamage = true;
         break;
-      case "act_mag_bolt":
+      case "act_mag_bolt_hp":
         if (targetEnemy) this.applyDirectDamage(targetEnemy, 2, player);
+        break;
+      case "act_mag_bolt_mix":
+        if (targetEnemy) {
+          this.applyDirectDamage(targetEnemy, 1, player);
+          this.gainPc(targetEnemy, -1);
+        }
         break;
       case "act_mag_amnesia":
         if (targetEnemy) {
@@ -1676,9 +1671,13 @@ const Engine = {
           if (targetEnemy.hand.length > 0) targetEnemy.hand.pop();
         }
         break;
-      case "act_mut_molt":
+      case "act_mut_molt_pc":
         this.drawCards(player, 1);
         this.gainPc(player, 1);
+        break;
+      case "act_mut_molt_hp":
+        this.drawCards(player, 1);
+        this.healPlayer(player, 1);
         break;
       case "act_mut_mindtheft":
         player.buffNextAttack += 2;
@@ -1700,9 +1699,11 @@ const Engine = {
         break;
     }
 
+    // SE L'AZIONE HA FATTO VINCERE LA PARTITA, FERMA TUTTO SUBITO SENZA APRIRE IL BANNER DELL'AZIONE!
+    if (GameState.gameOver) return;
+
     if (card.shift) this.shiftArena();
 
-    // Rende noto a tutti nel log e nel banner del modale chi è stato scelto come bersaglio!
     const targetBannerLog = targetEnemy
       ? `✨ <b>${player.name}</b> usa <b>${card.name}</b> contro 🎯 <b>${targetEnemy.name}</b>!`
       : `✨ <b>${player.name}</b> gioca la carta azione <b>${card.name}</b>`;
@@ -1711,7 +1712,9 @@ const Engine = {
     UI.renderTable();
     Multiplayer.broadcastFullStateFromHost();
 
+    // Comparsa velocizzata a 400ms (0,4 secondi) invece di 2000ms!
     setTimeout(() => {
+      if (GameState.gameOver) return;
       const summaryHTML = `
         <div class="liquid-pill px-4 py-1.5 rounded-2xl border border-amber-400/50 text-xs font-black uppercase tracking-wider text-amber-300 shadow-lg">
           ✨ ${player.name} gioca ${card.name}
@@ -1735,13 +1738,14 @@ const Engine = {
       Multiplayer.broadcastFullStateFromHost();
 
       UI.showTimedSummaryModal(summaryHTML, 10000, () => {
+        if (GameState.gameOver) return;
         GameState.sharedModalState = null;
         GameState.lastRenderedModalId = null;
         UI.renderTable();
         Multiplayer.broadcastFullStateFromHost();
         if (onAfterConfirm) onAfterConfirm();
       });
-    }, 2000);
+    }, 400);
   },
 
   registerActionSkipVote(slotIdx) {
@@ -1750,24 +1754,65 @@ const Engine = {
     const btn = document.getElementById("btn-skip-timer");
     if (btn) btn.textContent = `Salta (${GameState.skipVotes.length}/${totalHumans}) ➔`;
     if (GameState.skipVotes.length >= totalHumans) {
+      if (GameState.readingTimerInterval) {
+        clearInterval(GameState.readingTimerInterval);
+        GameState.readingTimerInterval = null;
+      }
       GameState.sharedModalState = null;
+      GameState.lastRenderedModalId = null;
+      UI.closeModal();
     }
     Multiplayer.broadcastFullStateFromHost();
   },
 
   activateLeaderSkill(playerIdx) {
     const player = GameState.players[playerIdx];
-    if (GameState.activePlayerIndex !== playerIdx || player.usedLeaderThisRound) return;
-    if (player.leader.skillType !== "active") return;
+    const effLeader = this.getEffectiveLeader(player);
+    const isAwk = this.isLeaderAwakenedForSkill(player);
+    if (player.usedLeaderThisRound || effLeader.skillType !== "active") return;
 
-    if (player.leader.id === "ldr_zarok") {
+    // Costo extra di +1 PC se Nyx non è risvegliata e usa un'abilità attiva copiata
+    const nyxExtraPcCost = player.leader.id === "ldr_nyx" && !player.awakened ? 1 : 0;
+    if (player.pc < nyxExtraPcCost) {
+      UI.setPersistentStatus(`⚠️ Ti serve ${nyxExtraPcCost} PC extra per attivare il potere copiato da Nyx!`);
+      return;
+    }
+
+    // XYLAR DAI MILLE VOLTI (Attivabile durante la propria difesa!)
+    if (effLeader.id === "ldr_xylar") {
+      if (GameState.waitingForDefenseFromIdx !== playerIdx) {
+        UI.setPersistentStatus(`⚠️ Puoi attivare il potere di Xylar solo mentre ti stai difendendo!`);
+        return;
+      }
+      const xylarPcCost = (isAwk ? 0 : 1) + nyxExtraPcCost;
+      if (player.pc < xylarPcCost) {
+        UI.setPersistentStatus(`⚠️ PC insufficienti (${xylarPcCost} PC richiesti) per attivare Xylar!`);
+        return;
+      }
       if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
         Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: null, discardUid: null });
       } else {
         this.executeLeaderSkillOnHost(playerIdx, null, null);
         Multiplayer.broadcastFullStateFromHost();
       }
-    } else if (player.leader.id === "ldr_squik") {
+      return;
+    }
+
+    // Tutti gli altri Leader attivi si usano nel proprio turno
+    if (GameState.activePlayerIndex !== playerIdx) return;
+
+    if (effLeader.id === "ldr_zarok" || effLeader.id === "ldr_olaf") {
+      if (effLeader.id === "ldr_olaf" && !isAwk && player.hp <= 1) {
+        UI.setPersistentStatus(`⚠️ Non hai abbastanza PV per attivare la Provocazione di Olaf!`);
+        return;
+      }
+      if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) {
+        Multiplayer.sendClientAction({ kind: "ACTIVATE_LEADER", targetIdx: null, discardUid: null });
+      } else {
+        this.executeLeaderSkillOnHost(playerIdx, null, null);
+        Multiplayer.broadcastFullStateFromHost();
+      }
+    } else if (effLeader.id === "ldr_squik") {
       if (player.hand.length === 0) return;
       GameState.pendingDiscardSelection = {
         sourceCardUid: null,
@@ -1782,8 +1827,8 @@ const Engine = {
       };
       UI.setPersistentStatus(`🗑️ Apri una carta dalla tua mano e premi <b>"Scarta questa carta"</b> per il potere di Squik`);
       UI.renderTable();
-    } else if (player.leader.id === "ldr_malakor") {
-      const minPc = player.awakened ? 3 : 4;
+    } else if (effLeader.id === "ldr_malakor") {
+      const minPc = isAwk ? 3 : 4;
       const valid = this.getAlivePlayers().filter((p) => p.index !== player.index && p.pc >= minPc).map((p) => p.index);
       if (valid.length === 0) return;
       GameState.pendingTargetSelection = {
@@ -1799,9 +1844,9 @@ const Engine = {
       };
       UI.setPersistentStatus(`🎯 Scegli a sinistra da quale avversario rubare con Malakor`);
       UI.renderTable();
-    } else if (player.leader.id === "ldr_morphos") {
+    } else if (effLeader.id === "ldr_morphos") {
       const valid = this.getAlivePlayers()
-        .filter((p) => p.index !== player.index && (player.awakened ? (p.hp > player.hp || p.pc > player.pc) : (p.hp > player.hp && p.pc > player.pc)))
+        .filter((p) => p.index !== player.index && (isAwk ? (p.hp > player.hp || p.pc > player.pc) : (p.hp > player.hp && p.pc > player.pc)))
         .map((p) => p.index);
       if (valid.length === 0) return;
       GameState.pendingTargetSelection = {
@@ -1823,31 +1868,59 @@ const Engine = {
   executeLeaderSkillOnHost(playerIdx, targetIdx = null, discardUid = null) {
     const player = GameState.players[playerIdx];
     if (!player || player.usedLeaderThisRound) return;
+    const effLeader = this.getEffectiveLeader(player);
+    const isAwk = this.isLeaderAwakenedForSkill(player);
+    const nyxExtraPcCost = player.leader.id === "ldr_nyx" && !player.awakened ? 1 : 0;
+
+    if (player.pc < nyxExtraPcCost) return;
+    if (nyxExtraPcCost > 0) this.gainPc(player, -nyxExtraPcCost);
     player.usedLeaderThisRound = true;
 
-    if (player.leader.id === "ldr_zarok") {
-      if (!player.awakened) this.applyDirectDamage(player, 2, player);
+    if (effLeader.id === "ldr_zarok") {
+      if (!isAwk) this.applyDirectDamage(player, 2, player);
       player.buffNextAttack += 3;
-    } else if (player.leader.id === "ldr_squik") {
+    } else if (effLeader.id === "ldr_olaf") {
+      if (!isAwk) this.applyDirectDamage(player, 1, player);
+      else player.buffNextDefense += 2;
+      player.olafTauntActive = true;
+      // Devia il prossimo attacco avversario su Olaf!
+      this.getAlivePlayers().forEach((enemy) => {
+        if (enemy.index !== player.index && !enemy.playedThisRound) {
+          enemy.forcedTargetByIdx = player.index;
+        }
+      });
+    } else if (effLeader.id === "ldr_xylar") {
+      const cost = isAwk ? 0 : 1;
+      this.gainPc(player, -cost);
+      player.buffNextDefense += isAwk ? 2 : 1; // Corretto da 0 a 1
+      this.drawCards(player, 1);
+    } else if (effLeader.id === "ldr_squik") {
       if (discardUid) player.hand = player.hand.filter((c) => c.uid !== discardUid);
       else if (player.hand.length > 0) player.hand.pop();
+      const handBefore = player.hand.length;
       this.drawCards(player, 2);
-      if (player.awakened) this.gainPc(player, 1);
-    } else if (player.leader.id === "ldr_malakor" && targetIdx !== null) {
+      const drawnCards = player.hand.slice(handBefore);
+      if (isAwk) {
+        this.gainPc(player, 1);
+      } else if (drawnCards.some((c) => c.type === "action")) {
+        // Fix Squik Base: subisci 1 danno se tra le carte pescate c'è un'Azione!
+        this.applyDirectDamage(player, 1, player);
+      }
+    } else if (effLeader.id === "ldr_malakor" && targetIdx !== null) {
       const target = GameState.players[targetIdx];
       this.gainPc(target, -1);
       this.gainPc(player, 1);
-      if (player.awakened) {
+      if (isAwk) {
         this.applyDirectDamage(target, 1, player);
         this.healPlayer(player, 1);
       }
-    } else if (player.leader.id === "ldr_morphos" && targetIdx !== null) {
+    } else if (effLeader.id === "ldr_morphos" && targetIdx !== null) {
       const target = GameState.players[targetIdx];
       this.healPlayer(player, 1);
       this.gainPc(player, 1);
       this.applyDirectDamage(target, 1, player);
     }
-    UI.setPersistentStatus(`👑 <b>${player.name}</b> ha attivato il potere di <b>${player.leader.name}</b>`);
+    UI.setPersistentStatus(`👑 <b>${player.name}</b> ha attivato il potere di <b>${effLeader.name}</b>`);
     UI.renderTable();
   },
 
@@ -1860,10 +1933,15 @@ const Engine = {
     if (target.attacksTakenThisRound >= this.getMaxAttacksPerRound()) return false;
     if (!this.isFinalDuel1v1() && GameState.lastAttackerIndex === targetIdx) return false;
 
-    // Se l'attaccante è stato provocato da "Insulto Vichingo", è obbligato ad attaccare chi lo ha provocato (se bersagliabile)
     if (attacker.forcedTargetByIdx !== null && attacker.forcedTargetByIdx !== undefined) {
       const taunter = GameState.players[attacker.forcedTargetByIdx];
-      if (taunter && !taunter.eliminated && taunter.attacksTakenThisRound < this.getMaxAttacksPerRound()) {
+      if (
+        taunter &&
+        !taunter.eliminated &&
+        attacker.forbidAttackTarget !== taunter.index &&
+        taunter.attacksTakenThisRound < this.getMaxAttacksPerRound() &&
+        (this.isFinalDuel1v1() || GameState.lastAttackerIndex !== taunter.index)
+      ) {
         return targetIdx === attacker.forcedTargetByIdx;
       }
     }
@@ -1933,9 +2011,9 @@ const Engine = {
     this.gainPc(attacker, -atkCost);
     attacker.hand = attacker.hand.filter((c) => c.uid !== atkCard.uid);
 
-    if (attacker.leader.id === "ldr_vaelen" && atkCard.cost >= 5) {
+    if (this.getEffectiveLeader(attacker).id === "ldr_vaelen" && atkCard.cost >= 5) {
       this.drawCards(attacker, 1);
-      if (attacker.awakened) this.gainPc(attacker, 1);
+      if (this.isLeaderAwakenedForSkill(attacker)) this.gainPc(attacker, 1);
     }
 
     UI.setPersistentStatus(`⚔️ <b>${attacker.name}</b> attacca <b>${defender.name}</b>`);
@@ -1980,6 +2058,7 @@ const Engine = {
   },
 
   finishCombatResolution(attackerIdx, defenderIdx, atkCard, defCard) {
+    if (GameState.gameOver) return;
     const attacker = GameState.players[attackerIdx];
     const defender = GameState.players[defenderIdx];
     const appliedCombatEffects = [];
@@ -1996,25 +2075,12 @@ const Engine = {
       GameState.slotDifCard = defCard;
     }
 
-    // Track Obiettivo Mutaformi "Ladri di Identità" (obj_mut_3: attivare effetti contro tutte e 3 le altre fazioni)
-    const trackMutCopyFaction = (mutPlayer, enemyPlayer) => {
-      if (mutPlayer.faction !== "mutaformi" || !enemyPlayer) return;
-      if (!mutPlayer.copiedFactions) mutPlayer.copiedFactions = [];
-      if (!mutPlayer.copiedFactions.includes(enemyPlayer.faction)) {
-        mutPlayer.copiedFactions.push(enemyPlayer.faction);
-        if (mutPlayer.objective.id === "obj_mut_3" && mutPlayer.copiedFactions.length >= 3) {
-          this.triggerVictory(mutPlayer, "Obiettivo Ladri di Identità completato!");
-        }
-      }
-    };
-
-    // Gestione copia effetto per "Spia Senza Volto" (mut_stealer) e "Progenitore del Caos" (mut_primordial)
     let atkEff = atkCard.effectCode;
     let defEff = defCard ? defCard.effectCode : null;
 
     const protectDef = GameState.options.arenasEnabled && GameState.currentArena?.modifier?.protectDefenderEffects;
     const cancelDefEffects = (atkEff === "vik_legend" || atkEff === "mag_archmage") && !protectDef;
-    const cancelAtkEffects = defEff === "vik_legend" || defEff === "mag_archmage" || defEff === "mag_mirage";
+    const cancelAtkEffects = defEff === "vik_legend" || defEff === "mag_archmage" || defEff === "mag_mirage_3";
 
     if (cancelDefEffects && defEff) {
       appliedCombatEffects.push(`${atkCard.name}: annulla l'effetto di ${defCard.name}`);
@@ -2026,26 +2092,24 @@ const Engine = {
     }
 
     let atkCopiedEnemy = false;
+    let defCopiedEnemy = false;
     if ((atkEff === "mut_stealer" || atkEff === "mut_primordial") && defEff) {
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       if (atkEff === "mut_stealer") {
         atkEff = defEff;
         appliedCombatEffects.push(`${atkCard.name}: copia l'effetto di ${defCard.name}`);
       }
     }
     if ((defEff === "mut_stealer" || defEff === "mut_primordial") && atkEff) {
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       if (defEff === "mut_stealer") {
         defEff = atkEff;
         appliedCombatEffects.push(`${defCard.name}: copia l'effetto di ${atkCard.name}`);
       }
     }
 
-    // Valori Base stampati (per l'Obiettivo Maghi "Supremazia della Mente" obj_mag_2)
     const rawBaseAtk = atkCard.atk === "?" ? 2 : Number(atkCard.atk);
     const rawBaseDif = defCard ? (defCard.dif === "?" ? 2 : Number(defCard.dif)) : 0;
-
     let atkVal = rawBaseAtk;
     let difVal = rawBaseDif;
 
@@ -2055,91 +2119,88 @@ const Engine = {
       appliedCombatEffects.push(`Colpo di Scudo: usa DIF (${atkVal}) come ATK`);
     }
 
-    // Risoluzione Statistiche Dinamiche Mutaformi e Maghi
+    // Mutaformi
     if (atkEff === "mut_larva" && defCard) {
       atkVal = Math.min(4, Math.max(2, defCard.cost));
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: ATK diventa ${atkVal}`);
     }
     if (defEff === "mut_larva") {
       difVal = Math.min(4, Math.max(2, atkCard.cost));
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: DIF diventa ${difVal}`);
     }
     if (atkEff === "mut_doppel" && defCard) {
       atkVal = Math.max(3, rawBaseAtk, Number(defCard.atk) || 3);
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: copia ATK (${atkVal})`);
     }
     if (defEff === "mut_doppel") {
       difVal = Math.max(3, rawBaseDif, atkVal);
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: copia DIF (${difVal})`);
     }
     if (atkEff === "mut_parasite") {
       atkVal += defender.pc;
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: +${defender.pc} ATK per i PC nemici`);
     }
     if (defEff === "mut_parasite" && defCard) {
       difVal += attacker.pc;
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: +${attacker.pc} DIF per i PC nemici`);
     }
     if (atkEff === "mut_assimilator") {
       atkVal += 2;
       if (defCard) difVal = Math.max(0, difVal - 2);
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: assorbe 2 punti stat dal nemico`);
     }
     if (defEff === "mut_assimilator" && defCard) {
       difVal += 2;
       atkVal = Math.max(0, atkVal - 2);
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: assorbe 2 punti ATK dal nemico`);
     }
     if (atkEff === "mut_shaper" && defender.pc >= attacker.pc + 2) {
       const temp = attacker.pc;
       attacker.pc = defender.pc;
       defender.pc = temp;
-      trackMutCopyFaction(attacker, defender);
+      atkCopiedEnemy = true;
       appliedCombatEffects.push(`${atkCard.name}: scambia i PC con ${defender.name}`);
     }
     if (defEff === "mut_shaper" && attacker.pc >= defender.pc + 2) {
       const temp = defender.pc;
       defender.pc = attacker.pc;
       attacker.pc = temp;
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: scambia i PC con ${attacker.name}`);
     }
     if (atkEff === "mut_abomination") {
       atkVal = Math.min(9, Math.max(4, 20 - defender.hp));
       atkCopiedEnemy = true;
-      trackMutCopyFaction(attacker, defender);
       appliedCombatEffects.push(`${atkCard.name}: ATK pari a ${atkVal}`);
     }
     if (defEff === "mut_abomination") {
       difVal = Math.min(9, Math.max(4, 20 - attacker.hp));
-      trackMutCopyFaction(defender, attacker);
+      defCopiedEnemy = true;
       appliedCombatEffects.push(`${defCard.name}: DIF pari a ${difVal}`);
     }
     if (atkCard.effectCode === "mut_primordial" && defCard) {
       const bonus = Math.floor((Number(defCard.atk) || 4) / 2);
       atkVal += bonus;
+      atkEff = defEff; // Copia l'effetto della carta nemica
       atkCopiedEnemy = true;
-      appliedCombatEffects.push(`${atkCard.name}: +${bonus} ATK dal nemico`);
+      appliedCombatEffects.push(`${atkCard.name}: +${bonus} ATK e copia effetto da ${defCard.name}`);
     }
     if (defCard?.effectCode === "mut_primordial") {
       const bonus = Math.floor(atkVal / 2);
       difVal += bonus;
-      appliedCombatEffects.push(`${defCard.name}: +${bonus} DIF dal nemico`);
+      defEff = atkEff; // Copia l'effetto della carta nemica
+      defCopiedEnemy = true;
+      appliedCombatEffects.push(`${defCard.name}: +${bonus} DIF e copia effetto da ${atkCard.name}`);
     }
-
-    // Altri modificatori Creature (Maghi, Vichinghi, Goblin)
+    // Maghi e Vichinghi
     if (atkEff === "mag_sage") {
       atkVal += attacker.hand.length;
       appliedCombatEffects.push(`${atkCard.name}: +${attacker.hand.length} ATK per le carte in mano`);
@@ -2153,9 +2214,14 @@ const Engine = {
       atkVal += bonus;
       appliedCombatEffects.push(`${atkCard.name}: +${bonus} ATK per le Azioni giocate`);
     }
-    if (atkEff === "vik_berserker" && (attacker.attacksTakenThisRound > 0 || !defender.hasAttackedPlayer?.[attackerIdx])) {
+    if (atkEff === "vik_berserker_atk" && (attacker.attacksTakenThisRound > 0 || !defender.hasAttackedPlayer?.[attackerIdx])) {
       atkVal += 3;
       appliedCombatEffects.push(`${atkCard.name}: +3 ATK Furia Berserker`);
+    }
+    if (atkEff === "vik_berserker_heal" && attacker.attacksTakenThisRound > 0) {
+      atkVal += 2;
+      this.healPlayer(attacker, 1);
+      appliedCombatEffects.push(`${atkCard.name}: +2 ATK e +1 PV per Contrattacco`);
     }
     if (atkEff === "mag_golem" && defCard) {
       const red = Math.min(4, defCard.cost);
@@ -2168,7 +2234,7 @@ const Engine = {
       appliedCombatEffects.push(`${defCard.name}: riduce ATK nemico di ${red}`);
     }
 
-    // Buff da Carte Azione e Campo di Battaglia
+    // Buff e Arena
     atkVal += attacker.buffNextAttack;
     attacker.buffNextAttack = 0;
     if (defCard) {
@@ -2188,23 +2254,40 @@ const Engine = {
       appliedCombatEffects.push(`Barriera Arcana: ATK nemico dimezzato a ${atkVal}`);
     }
 
-    // Effetti Pre-Calcolo Danni
-    if (atkEff === "gob_goliath") {
+    // Effetti Pre-Calcolo Danni (Goblin, Maghi, Vichinghi)
+    if (atkEff === "gob_goliath_all" || atkEff === "gob_goliath_atk") {
       this.applyDirectDamage(attacker, 2, attacker);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} perde 2 PV`);
     }
-    if (atkEff === "gob_piercer" && defCard && attacker.hp > 1) {
+    if (defEff === "gob_goliath_all") {
+      this.applyDirectDamage(defender, 2, defender);
+      appliedCombatEffects.push(`${defCard.name}: ${defender.name} perde 2 PV`);
+    }
+    if (atkEff === "gob_piercer_2hp" && defCard && attacker.hp > 2) {
+      this.applyDirectDamage(attacker, 2, attacker);
+      difVal = Math.max(0, difVal - 2);
+      appliedCombatEffects.push(`${atkCard.name}: paga 2 PV e ignora 2 DIF`);
+    }
+    if (atkEff === "gob_piercer_1hp" && defCard && attacker.hp > 1) {
       this.applyDirectDamage(attacker, 1, attacker);
       difVal = Math.max(0, difVal - 2);
       appliedCombatEffects.push(`${atkCard.name}: paga 1 PV e ignora 2 DIF`);
     }
-    if (atkEff === "mag_apprentice") {
+    if (atkEff === "mag_app_pc") {
       this.gainPc(attacker, 1);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} guadagna +1 PC`);
     }
-    if (defEff === "mag_apprentice") {
+    if (defEff === "mag_app_pc") {
       this.gainPc(defender, 1);
       appliedCombatEffects.push(`${defCard.name}: ${defender.name} guadagna +1 PC`);
+    }
+    if (atkEff === "mag_app_draw") {
+      this.healPlayer(attacker, 1);
+      appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} recupera +1 PV`);
+    }
+    if (defEff === "mag_app_draw") {
+      this.healPlayer(defender, 1);
+      appliedCombatEffects.push(`${defCard.name}: ${defender.name} recupera +1 PV`);
     }
     if (atkEff === "mag_siphon") {
       if (defender.pc > 0) {
@@ -2224,91 +2307,164 @@ const Engine = {
         appliedCombatEffects.push(`${defCard.name}: ${attacker.name} (0 PC) subisce 2 danni`);
       }
     }
-    if (defEff === "vik_frost") {
+    if (defEff === "vik_frost_pc") {
       this.gainPc(attacker, -1);
       appliedCombatEffects.push(`${defCard.name}: ${attacker.name} perde 1 PC`);
     }
-    if (atkEff === "vik_runepriest") {
+    if (defEff === "vik_frost_atk") {
+      atkVal = Math.max(0, atkVal - 1);
+      this.healPlayer(defender, 1);
+      appliedCombatEffects.push(`${defCard.name}: -1 ATK nemico e +1 PV a ${defender.name}`);
+    }
+    if (atkEff === "vik_priest_hp") {
       this.healPlayer(attacker, 2);
       appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} recupera +2 PV`);
     }
-    if (defEff === "vik_runepriest") {
+    if (defEff === "vik_priest_hp") {
       this.healPlayer(defender, 2);
       appliedCombatEffects.push(`${defCard.name}: ${defender.name} recupera +2 PV`);
     }
-    if (defEff === "gob_bomber") {
+    if (atkEff === "vik_priest_mix") {
+      this.healPlayer(attacker, 1);
+      this.gainPc(attacker, 1);
+      appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} ottiene +1 PV e +1 PC`);
+    }
+    if (defEff === "vik_priest_mix") {
+      this.healPlayer(defender, 1);
+      this.gainPc(defender, 1);
+      appliedCombatEffects.push(`${defCard.name}: ${defender.name} ottiene +1 PV e +1 PC`);
+    }
+    if (defEff === "gob_bomber_2") {
       this.applyDirectDamage(attacker, 2, defender);
       appliedCombatEffects.push(`${defCard.name}: infligge 2 danni diretti a ${attacker.name}`);
-      if (attacker.hp === 0 && defender.objective.id === "obj_vik_2") {
-        this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+      if (defender.objective.id === "obj_vik_2") {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (attacker.hp === 0 || defender.objectiveProgress >= 3) {
+          this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+        }
+      }
+    }
+    if (defEff === "gob_bomber_1_pc") {
+      this.applyDirectDamage(attacker, 1, defender);
+      this.gainPc(attacker, -1);
+      appliedCombatEffects.push(`${defCard.name}: 1 danno e -1 PC a ${attacker.name}`);
+      if (defender.objective.id === "obj_vik_2") {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (attacker.hp === 0 || defender.objectiveProgress >= 3) {
+          this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+        }
       }
     }
     if (atkEff === "mag_phantom" && defCard) {
       difVal = Math.max(0, difVal - 4);
       appliedCombatEffects.push(`${atkCard.name}: ignora fino a 4 DIF`);
     }
-    if (defEff === "mag_mirage") {
+    if (defEff === "mag_mirage_3") {
       atkVal = Math.min(3, atkVal);
-      appliedCombatEffects.push(`${defCard.name}: riduce l'ATK nemico a ${atkVal}`);
+      appliedCombatEffects.push(`${defCard.name}: riduce l'ATK nemico a max 3`);
+    }
+    if (defEff === "mag_mirage_2") {
+      atkVal = Math.max(0, atkVal - 2);
+      appliedCombatEffects.push(`${defCard.name}: riduce di 2 l'ATK nemico`);
     }
 
-    // Calcolo Danni Finali
+    // Calcolo Danni
     let damage = Math.max(0, atkVal - difVal);
     if (atkEff === "gob_grinder" && damage < 2) {
       damage = 2;
       appliedCombatEffects.push(`${atkCard.name}: Perforazione garantisce 2 danni`);
     }
-    if (defEff === "vik_huscarl" && damage > 2) {
+    if (defEff === "vik_huscarl_cap2" && damage > 2) {
       damage = 2;
       appliedCombatEffects.push(`${defCard.name}: riduce il danno massimo subito a 2`);
     }
+    if (defEff === "vik_huscarl_cap1" && damage > 1) {
+      damage = 1;
+      appliedCombatEffects.push(`${defCard.name}: riduce il danno massimo subito a 1`);
+    }
 
     if (damage > 0) {
+      defender.olafTauntActive = false;
       if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.extraAttackDamage) {
         damage += 1;
       }
       this.applyDirectDamage(defender, damage, attacker);
       attacker.wonClashThisRound = true;
+      attacker.wonAnyClash = true;
 
-      // Check Obiettivo Goblin "Bancarotta del Sangue" (obj_gob_3) e Mutaformi "Specchio Perfetto" (obj_mut_1)
-      if (defender.hp === 0) {
-        if (attacker.objective.id === "obj_mut_1" && atkCopiedEnemy) {
-          this.triggerVictory(attacker, "Obiettivo Specchio Perfetto completato!");
+      // Progresso Obiettivi Mutaformi e Goblin in attacco vincente
+      if (atkCopiedEnemy) {
+        if (attacker.faction === "mutaformi") {
+          if (!attacker.copiedFactions) attacker.copiedFactions = [];
+          if (!attacker.copiedFactions.includes(defender.faction)) {
+            attacker.copiedFactions.push(defender.faction);
+            if (attacker.objective.id === "obj_mut_3" && attacker.copiedFactions.length >= 3) {
+              this.triggerVictory(attacker, "Obiettivo Ladri di Identità completato!");
+            }
+          }
         }
-      } else if (atkEff === "gob_grinder") {
+        if (attacker.objective.id === "obj_mut_1") {
+          attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
+          if (defender.hp === 0 || attacker.objectiveProgress >= 3) {
+            this.triggerVictory(attacker, "Obiettivo Specchio Perfetto completato!");
+          }
+        }
+      }
+      if (attacker.objective.id === "obj_gob_3" && attacker.pc === 0) {
+        attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
+        if (attacker.objectiveProgress >= 2) {
+          this.triggerVictory(attacker, "Obiettivo Bancarotta del Sangue completato!");
+        }
+      }
+
+      if (defender.hp > 0 && atkEff === "gob_grinder") {
         this.gainPc(attacker, -2);
         appliedCombatEffects.push(`${atkCard.name}: il bersaglio sopravvive (-2 PC)`);
       }
-
-      if (atkEff === "gob_kamikaze") {
+      if (atkEff === "gob_kamikaze_hp") {
         this.applyDirectDamage(attacker, 1, attacker);
         appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} subisce 1 danno`);
+      }
+      if (atkEff === "gob_kamikaze_pc") {
+        this.gainPc(attacker, -1);
+        appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} perde 1 PC`);
       }
       if (atkEff === "gob_shaman") {
         this.healPlayer(attacker, 2);
         appliedCombatEffects.push(`${atkCard.name}: ${attacker.name} recupera +2 PV`);
       }
-      if ((atkEff === "gob_raider" || atkEff === "gob_merc") && defender.pc > 0) {
+      if ((atkEff === "gob_raider_pc" || atkEff === "gob_merc_pc") && defender.pc > 0) {
         this.gainPc(defender, -1);
         this.gainPc(attacker, 1);
         appliedCombatEffects.push(`${atkCard.name}: ruba 1 PC a ${defender.name}`);
+      }
+      if (atkEff === "gob_raider_hp" && damage >= 3) {
+        this.applyDirectDamage(defender, 1, attacker);
+        this.healPlayer(attacker, 1);
+        appliedCombatEffects.push(`${atkCard.name}: ruba 1 PV a ${defender.name}`);
+      }
+      if (atkEff === "gob_merc_hp") {
+        this.applyDirectDamage(defender, 2, attacker);
+        this.healPlayer(attacker, 2);
+        appliedCombatEffects.push(`${atkCard.name}: ruba 2 PV a ${defender.name}`);
       }
       if (atkEff === "vik_legend") {
         this.drawCards(attacker, 2);
         appliedCombatEffects.push(`${atkCard.name}: pesca 2 carte per vittoria scontro`);
       }
-      if (attacker.leader.id === "ldr_zarok" && attacker.awakened) this.healPlayer(attacker, 1);
+      if (this.getEffectiveLeader(attacker).id === "ldr_zarok" && this.isLeaderAwakenedForSkill(attacker)) {
+        this.healPlayer(attacker, 1);
+      }
 
-      // Obiettivi Attaccante e Difensore
       if (attacker.objective.id === "obj_gob_1" && damage >= 5) {
         attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
-        if (attacker.objectiveProgress >= 2) this.triggerVictory(attacker, "Obiettivo Furia Cieca completato!");
+        if (attacker.objectiveProgress >= 3) this.triggerVictory(attacker, "Obiettivo Furia Cieca completato!");
       }
       if (defender.objective.id === "obj_gob_2" && defender.hp > 0) {
         defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
-        if (defender.objectiveProgress >= 3) this.triggerVictory(defender, "Obiettivo Carne da Macello completato!");
+        if (defender.objectiveProgress >= 4) this.triggerVictory(defender, "Obiettivo Carne da Macello completato!");
       }
-      if (attacker.objective.id === "obj_mag_2" && defCard && rawBaseAtk < rawBaseDif) {
+      if (attacker.objective.id === "obj_mag_2" && defCard && (atkCard.cost < defCard.cost || rawBaseAtk < rawBaseDif)) {
         attacker.objectiveProgress = (attacker.objectiveProgress || 0) + 1;
         if (attacker.objectiveProgress >= 3) this.triggerVictory(attacker, "Obiettivo Supremazia della Mente completato!");
       }
@@ -2317,48 +2473,81 @@ const Engine = {
       }
     } else if (defCard) {
       defender.wonClashThisRound = true;
-      if (defEff === "vik_shieldbearer") {
+      defender.wonAnyClash = true;
+
+      if (defCopiedEnemy && defender.objective.id === "obj_mut_1") {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (defender.objectiveProgress >= 3) {
+          this.triggerVictory(defender, "Obiettivo Specchio Perfetto completato!");
+        }
+      }
+      if (defEff === "vik_shield_pc") {
         this.gainPc(defender, 1);
         appliedCombatEffects.push(`${defCard.name}: ${defender.name} guadagna +1 PC`);
       }
-      if (defEff === "gob_merc" && attacker.pc > 0) {
+      if (defEff === "vik_shield_hp") {
+        this.healPlayer(defender, 1);
+        appliedCombatEffects.push(`${defCard.name}: ${defender.name} recupera +1 PV`);
+      }
+      if (defEff === "gob_merc_pc" && attacker.pc > 0) {
         this.gainPc(attacker, -1);
         this.gainPc(defender, 1);
         appliedCombatEffects.push(`${defCard.name}: ruba 1 PC a ${attacker.name}`);
+      }
+      if (defEff === "gob_merc_hp") {
+        this.applyDirectDamage(attacker, 2, defender);
+        this.healPlayer(defender, 2);
+        appliedCombatEffects.push(`${defCard.name}: ruba 2 PV a ${attacker.name}`);
       }
       if (defEff === "vik_legend") {
         this.drawCards(defender, 2);
         appliedCombatEffects.push(`${defCard.name}: pesca 2 carte per vittoria scontro`);
       }
-      if (defEff === "vik_jarl" && difVal > atkVal) {
+
+      let reflectedTotal = 0;
+      if (defEff === "vik_jarl_refl" && difVal > atkVal) {
         const refl = difVal - atkVal;
+        reflectedTotal += refl;
         this.applyDirectDamage(attacker, refl, defender);
         appliedCombatEffects.push(`${defCard.name}: riflette ${refl} danni su ${attacker.name}`);
       }
-      if (defender.leader.id === "ldr_freya") {
-        const refl = defender.awakened ? 3 : 2;
+      if (defEff === "vik_jarl_fixed") {
+        reflectedTotal += 2;
+        this.applyDirectDamage(attacker, 2, defender);
+        this.gainPc(defender, 1);
+        appliedCombatEffects.push(`${defCard.name}: riflette 2 danni e dà +1 PC`);
+      }
+      if (this.getEffectiveLeader(defender).id === "ldr_freya") {
+        const refl = this.isLeaderAwakenedForSkill(defender) ? 3 : 2;
+        reflectedTotal += refl;
         this.applyDirectDamage(attacker, refl, defender);
         appliedCombatEffects.push(`Freya: riflette ${refl} danni su ${attacker.name}`);
-        if (defender.awakened && attacker.pc > 0) this.gainPc(attacker, -1);
+        if (this.isLeaderAwakenedForSkill(defender) && attacker.pc > 0) this.gainPc(attacker, -1);
       }
-      // Check Obiettivo Vichinghi "Contrattacco Letale" (obj_vik_2: eliminare l'attaccante coi danni riflessi)
-      if (attacker.hp === 0 && defender.objective.id === "obj_vik_2") {
-        this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+      if (reflectedTotal > 0 && defender.objective.id === "obj_vik_2") {
+        defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
+        if (attacker.hp === 0 || defender.objectiveProgress >= 3) {
+          this.triggerVictory(defender, "Obiettivo Contrattacco Letale completato!");
+        }
       }
       if (defender.objective.id === "obj_vik_1") {
         defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
         if (defender.objectiveProgress >= 4) this.triggerVictory(defender, "Obiettivo Muro di Ferro completato!");
       }
-      if (defender.objective.id === "obj_mag_2" && rawBaseDif < rawBaseAtk) {
+      if (defender.objective.id === "obj_mag_2" && (defCard.cost < atkCard.cost || rawBaseDif < rawBaseAtk)) {
         defender.objectiveProgress = (defender.objectiveProgress || 0) + 1;
         if (defender.objectiveProgress >= 3) this.triggerVictory(defender, "Obiettivo Supremazia della Mente completato!");
+      }
+      if (defender.olafTauntActive) {
+        defender.olafTauntActive = false;
+        this.gainPc(defender, 2);
+        appliedCombatEffects.push(`Olaf: Provocazione parata a 0 danni (+2 PC)`);
       }
       if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.drawOnWinClash) {
         this.drawCards(defender, 1);
       }
     }
 
-    // Effetto Post-Scontro Cronomante Supremo / Arcimago del Nexus (mag_archmage)
     if (atkEff === "mag_archmage") {
       attacker.pc = 5;
       this.drawCards(attacker, 1);
@@ -2373,6 +2562,13 @@ const Engine = {
     this.drawCards(attacker, 1);
     if (defCard) this.drawCards(defender, 1);
 
+    // FIX CRITICO VITTORIA: Se lo scontro ha fatto vincere un giocatore (per Obiettivo o Sopravvivenza), NON aprire il modal dello scontro e ferma il gioco!
+    if (GameState.gameOver) {
+      UI.renderTable();
+      Multiplayer.broadcastFullStateFromHost();
+      return;
+    }
+
     if (!attacker.hasAttackedPlayer) attacker.hasAttackedPlayer = {};
     attacker.hasAttackedPlayer[defenderIdx] = true;
     attacker.playedThisRound = true;
@@ -2383,7 +2579,6 @@ const Engine = {
     if (defCard) defCard.computedDif = difVal;
     UI.renderTable();
 
-    // Carte usate nello scontro renderizzate più piccole grazie a "clash-card-compact"
     const atkWins = damage > 0;
     const effectsHTML = appliedCombatEffects.length > 0
       ? appliedCombatEffects.map((ef) => `<span class="px-2 py-0.5 rounded-lg bg-black/50 border border-white/15 text-[10px] font-bold text-amber-200">✨ ${ef}</span>`).join("")
@@ -2412,6 +2607,7 @@ const Engine = {
     Multiplayer.broadcastFullStateFromHost();
 
     UI.showClashConfirmModal(clashHTML, () => {
+      if (GameState.gameOver) return;
       GameState.sharedModalState = null;
       GameState.lastRenderedModalId = null;
       GameState.slotAtkCard = null;
@@ -2453,9 +2649,10 @@ const Engine = {
     const player = GameState.players[playerIdx];
     player.playedThisRound = true;
 
-    if (player.leader.id === "ldr_ragnar") {
-      this.gainPc(player, player.awakened ? 3 : 2);
-      this.healPlayer(player, player.awakened ? 2 : 1);
+    if (this.getEffectiveLeader(player).id === "ldr_ragnar") {
+      const isAwk = this.isLeaderAwakenedForSkill(player);
+      this.gainPc(player, isAwk ? 3 : 2);
+      this.healPlayer(player, isAwk ? 2 : 1);
     }
     if (GameState.options.arenasEnabled && GameState.currentArena?.modifier?.passPenaltyHp) {
       this.applyDirectDamage(player, 1, player);
@@ -2521,6 +2718,14 @@ const Engine = {
     // Se sono un Client online, attendo lo stato dall'Host senza calcolare turni autonomamente
     if (Multiplayer.networkMode === "ONLINE" && !Multiplayer.isOnlineHost) return;
 
+    const prevPlayer = GameState.players[GameState.activePlayerIndex];
+    if (prevPlayer && !prevPlayer.eliminated && prevPlayer.pendingEndTurnDamage > 0) {
+      const dmg = prevPlayer.pendingEndTurnDamage;
+      prevPlayer.pendingEndTurnDamage = 0;
+      this.applyDirectDamage(prevPlayer, dmg, prevPlayer);
+      if (GameState.gameOver) return;
+    }
+
     let nextIdx = null;
     if (
       attackedPlayerIdx !== null &&
@@ -2558,20 +2763,22 @@ const Engine = {
 
     const aliveList = this.getAlivePlayers();
     aliveList.forEach((p) => {
-      if (p.objective.id === "obj_mag_1" && p.hand.length >= 11 && p.hp >= 15) {
+      if (p.objective.id === "obj_mag_1" && p.hand.length >= 8 && p.hp >= 12) {
         this.triggerVictory(p, "Obiettivo Onniscienza Arcana completato!");
       }
-      if (p.objective.id === "obj_vik_3" && p.pc >= 10 && p.hand.length >= 7 && p.wonClashThisRound) {
+      if (p.objective.id === "obj_vik_3" && p.pc >= 7 && p.hand.length >= 5 && p.wonAnyClash) {
         this.triggerVictory(p, "Obiettivo Bottino del Valhalla completato!");
       }
-      if (p.objective.id === "obj_mag_3") {
+      if (p.objective.id === "obj_mag_3" && GameState.round >= 3) {
         const others = aliveList.filter((o) => o.index !== p.index);
-        if (others.length > 0 && others.every((o) => o.pc === 0)) {
+        if (others.length > 0 && (others.every((o) => o.pc <= 1) || others.every((o) => p.pc >= o.pc + 5))) {
           this.triggerVictory(p, "Obiettivo Siccità di Mana completato!");
         }
       }
       if (p.objective.id === "obj_mut_2" && GameState.round >= 4) {
-        const hasTwin = aliveList.some((o) => o.index !== p.index && o.hp === p.hp && o.pc === p.pc);
+        const hasTwin = aliveList.some(
+          (o) => o.index !== p.index && ((o.hp === p.hp && Math.abs(o.pc - p.pc) <= 1) || (o.pc === p.pc && Math.abs(o.hp - p.hp) <= 1))
+        );
         if (hasTwin) {
           this.triggerVictory(p, "Obiettivo Simbiosi Totale completato!");
         }
@@ -2637,10 +2844,12 @@ const Engine = {
         regenLines.push(`<span>💀 <b>${p.name}</b></span><span class="text-white/40">Eliminato</span>`);
         return;
       }
+      
       p.playedThisRound = false;
       p.attacksTakenThisRound = 0;
       p.usedLeaderThisRound = false;
       p.wonClashThisRound = false;
+      p.olafTauntActive = false;
 
       const beforePc = p.pc;
       this.gainPc(p, pcRegen);
@@ -2659,6 +2868,7 @@ const Engine = {
     GameState.roundSummaryLines = regenLines;
     const firstIdx = GameState.baseOrder.find((idx) => !GameState.players[idx].eliminated);
     GameState.activePlayerIndex = firstIdx;
+    this.assignNyxCopyForRound();
     this.takeRoundStartSnapshot();
     UI.renderTable();
 
@@ -2740,8 +2950,34 @@ const Engine = {
   },
 
   triggerVictory(winner, reason) {
+    if (GameState.gameOver) return;
     GameState.gameOver = true;
-    UI.showModal("🏆 VITTORIA!", `${winner.name} ha vinto!`, `${reason}\n\nFazione: ${DB.factions[winner.faction].name} • Leader: ${winner.leader.name}`);
+    GameState.waitingForDefenseFromIdx = null;
+    GameState.waitingForDefenseFromP1 = false;
+    GameState.pendingTargetSelection = null;
+    GameState.pendingDiscardSelection = null;
+    if (GameState.readingTimerInterval) {
+      clearInterval(GameState.readingTimerInterval);
+      GameState.readingTimerInterval = null;
+    }
+
+    const badge = "🏆 PARTITA CONCLUSA!";
+    const title = `${winner.name} ha vinto!`;
+    const body = `${reason}\n\nFazione: ${DB.factions[winner.faction].name} • Leader: ${winner.leader.name}`;
+
+    GameState.sharedModalState = {
+      id: "victory_" + Date.now(),
+      type: "VICTORY",
+      badge,
+      title,
+      body
+    };
+    GameState.lastRenderedModalId = GameState.sharedModalState.id;
+
+    UI.setPersistentStatus(`🏆 <b>${winner.name}</b> ha vinto la partita! (${reason})`);
+    UI.renderTable();
+    UI.showModal(badge, title, body);
+    Multiplayer.broadcastFullStateFromHost();
   }
 };
 
